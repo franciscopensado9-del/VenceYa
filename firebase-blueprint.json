@@ -1,0 +1,112 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile and commerce link",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "displayName": { "type": "string", "maxLength": 128 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "email", "storeId"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Commerce business profile and settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "businessType": { "type": "string", "maxLength": 100 },
+        "ownerId": { "type": "string", "maxLength": 128 },
+        "currencySymbol": { "type": "string", "maxLength": 10 },
+        "soundAlerts": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "name", "ownerId"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Product catalog item in store inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 100 },
+        "unit": { "type": "string", "maxLength": 50 },
+        "barcode": { "type": "string", "maxLength": 64 },
+        "costPrice": { "type": "number" },
+        "salePrice": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "storeId", "name", "category", "unit"]
+    },
+    "Batch": {
+      "title": "Batch",
+      "description": "Lot with specific expiration date and stock for a product",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "lotNumber": { "type": "string", "maxLength": 100 },
+        "quantity": { "type": "number" },
+        "expirationDate": { "type": "string", "maxLength": 20 },
+        "costPrice": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "storeId", "productId", "quantity", "expirationDate"]
+    },
+    "Alert": {
+      "title": "Alert",
+      "description": "Expiration warning alert for store products",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "batchId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "expirationDate": { "type": "string", "maxLength": 20 },
+        "daysRemaining": { "type": "number" },
+        "urgency": { "type": "string", "maxLength": 20 },
+        "message": { "type": "string", "maxLength": 300 },
+        "isRead": { "type": "boolean" },
+        "isDismissed": { "type": "boolean" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "storeId", "productId", "batchId", "productName", "expirationDate"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Authenticated user profile data and designated storeId"
+    },
+    "/stores/{storeId}": {
+      "schema": { "$ref": "#/entities/Store" },
+      "description": "Store settings and business identity"
+    },
+    "/stores/{storeId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Store products catalog"
+    },
+    "/stores/{storeId}/batches/{batchId}": {
+      "schema": { "$ref": "#/entities/Batch" },
+      "description": "Store batches with expiration dates and quantities"
+    },
+    "/stores/{storeId}/alerts/{alertId}": {
+      "schema": { "$ref": "#/entities/Alert" },
+      "description": "Active expiration alerts generated for the store"
+    }
+  }
+}

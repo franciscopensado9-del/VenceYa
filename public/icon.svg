@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="venceya-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="50%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+    <linearGradient id="shield-shine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#064e3b" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Background container with rounded squircle -->
+  <rect width="512" height="512" rx="128" fill="#0f172a"/>
+  
+  <!-- Subtle circular halo -->
+  <circle cx="256" cy="256" r="180" fill="url(#venceya-grad)" opacity="0.12"/>
+  
+  <!-- Brand Shield/V Badge -->
+  <g filter="url(#shadow)">
+    <!-- Main V Badge -->
+    <path d="M128 140 C128 140, 256 100, 256 100 C256 100, 384 140, 384 140 C384 270, 256 390, 256 390 C256 390, 128 270, 128 140 Z" 
+          fill="url(#venceya-grad)" />
+    <!-- Gloss shine -->
+    <path d="M128 140 C128 140, 256 100, 256 100 C256 100, 384 140, 384 140 C384 270, 256 390, 256 390 Z" 
+          fill="url(#shield-shine)" opacity="0.5"/>
+  </g>
+
+  <!-- Inner Clock / Expiry Check Icon -->
+  <g transform="translate(196, 180)">
+    <!-- Clock circle -->
+    <circle cx="60" cy="60" r="50" fill="#ffffff" fill-opacity="0.95"/>
+    <!-- Clock hands indicating vigilance -->
+    <line x1="60" y1="60" x2="60" y2="30" stroke="#047857" stroke-width="8" stroke-linecap="round"/>
+    <line x1="60" y1="60" x2="80" y2="60" stroke="#047857" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="60" cy="60" r="5" fill="#047857"/>
+    <!-- Checkmark badge at bottom-right of clock -->
+    <circle cx="92" cy="92" r="22" fill="#10b981" stroke="#ffffff" stroke-width="4"/>
+    <path d="M84 92 L90 98 L102 86" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>

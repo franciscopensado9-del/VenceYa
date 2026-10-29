@@ -1,0 +1,100 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isStoreOwner(storeId) {
+      return isSignedIn() && (
+        request.auth.uid == storeId ||
+        (exists(/databases/$(database)/documents/stores/$(storeId)) && 
+         get(/databases/$(database)/documents/stores/$(storeId)).data.ownerId == request.auth.uid)
+      );
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && 
+        isValidId(userId) &&
+        request.resource.data.id == userId &&
+        request.resource.data.email is string &&
+        request.resource.data.storeId is string;
+      allow update: if isOwner(userId) &&
+        request.resource.data.id == resource.data.id;
+      allow delete: if false;
+    }
+
+    // Stores Collection
+    match /stores/{storeId} {
+      allow get: if isSignedIn() && (request.auth.uid == storeId || resource.data.ownerId == request.auth.uid);
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() && 
+        isValidId(storeId) &&
+        request.resource.data.ownerId == request.auth.uid &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0 &&
+        request.resource.data.name.size() <= 150;
+      allow update: if isSignedIn() && 
+        resource.data.ownerId == request.auth.uid &&
+        request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+
+      // Subcollection: Products
+      match /products/{productId} {
+        allow read: if isStoreOwner(storeId);
+        allow create: if isStoreOwner(storeId) && 
+          isValidId(productId) &&
+          request.resource.data.storeId == storeId &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() > 0 &&
+          request.resource.data.name.size() <= 200;
+        allow update: if isStoreOwner(storeId) &&
+          request.resource.data.storeId == resource.data.storeId;
+        allow delete: if isStoreOwner(storeId);
+      }
+
+      // Subcollection: Batches
+      match /batches/{batchId} {
+        allow read: if isStoreOwner(storeId);
+        allow create: if isStoreOwner(storeId) &&
+          isValidId(batchId) &&
+          request.resource.data.storeId == storeId &&
+          request.resource.data.productId is string &&
+          request.resource.data.quantity is number &&
+          request.resource.data.expirationDate is string;
+        allow update: if isStoreOwner(storeId) &&
+          request.resource.data.storeId == resource.data.storeId &&
+          request.resource.data.productId == resource.data.productId;
+        allow delete: if isStoreOwner(storeId);
+      }
+
+      // Subcollection: Alerts
+      match /alerts/{alertId} {
+        allow read: if isStoreOwner(storeId);
+        allow create: if isStoreOwner(storeId) &&
+          isValidId(alertId) &&
+          request.resource.data.storeId == storeId;
+        allow update: if isStoreOwner(storeId) &&
+          request.resource.data.storeId == resource.data.storeId;
+        allow delete: if isStoreOwner(storeId);
+      }
+    }
+  }
+}

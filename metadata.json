@@ -1,0 +1,10 @@
+{
+  "name": "VenceYa - Control de Vencimientos y Lotes",
+  "description": "Aplicación web PWA para comercios: control de vencimientos de productos y lotes, alertas anticipadas, escáner de códigos de barra y sugerencias de venta para reducir pérdidas.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
