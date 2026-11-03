@@ -11,7 +11,7 @@ import {
   where 
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { Product, Batch, StoreSettings } from '../types';
+import { Product, Batch, StoreSettings, Promotion, PromotionStatus } from '../types';
 import { calculateDaysRemaining, getExpirationStatus } from './storage';
 
 /**
@@ -24,6 +24,7 @@ export interface StoreSyncUnsubscribers {
   unsubProducts: () => void;
   unsubBatches: () => void;
   unsubAlerts: () => void;
+  unsubPromotions?: () => void;
 }
 
 export const firestoreSyncService = {
@@ -114,12 +115,14 @@ export const firestoreSyncService = {
       onProducts: (products: Product[]) => void;
       onBatches: (batches: Batch[]) => void;
       onSettings: (settings: StoreSettings) => void;
+      onPromotions?: (promotions: Promotion[]) => void;
       onError?: (err: unknown) => void;
     }
   ): StoreSyncUnsubscribers {
     const storePath = `stores/${storeId}`;
     const productsPath = `stores/${storeId}/products`;
     const batchesPath = `stores/${storeId}/batches`;
+    const promotionsPath = `stores/${storeId}/promotions`;
 
     // 1. Store settings listener
     const unsubStore = onSnapshot(
@@ -160,6 +163,8 @@ export const firestoreSyncService = {
             category: d.category || 'Otros',
             unit: d.unit || 'unidades',
             barcode: d.barcode || undefined,
+            brand: d.brand || undefined,
+            imageUrl: d.imageUrl || undefined,
             costPrice: d.costPrice,
             salePrice: d.salePrice,
             notes: d.notes,
@@ -198,11 +203,64 @@ export const firestoreSyncService = {
       }
     );
 
+    // 4. Promotions listener
+    const unsubPromotions = onSnapshot(
+      collection(db, 'stores', storeId, 'promotions'),
+      (snap) => {
+        if (!callbacks.onPromotions) return;
+        const list: Promotion[] = [];
+        snap.forEach((docSnap) => {
+          const d = docSnap.data();
+          list.push({
+            id: docSnap.id,
+            storeId,
+            title: d.title || 'Promoción',
+            type: d.type || 'discount',
+            status: d.status || 'active',
+            productId: d.productId || '',
+            productName: d.productName || '',
+            productCategory: d.productCategory,
+            productBarcode: d.productBarcode,
+            productImageUrl: d.productImageUrl,
+            unit: d.unit || 'unidades',
+            batchId: d.batchId,
+            batchExpirationDate: d.batchExpirationDate,
+            batchDaysRemaining: d.batchDaysRemaining,
+            availableStock: d.availableStock,
+            regularPrice: Number(d.regularPrice) || 0,
+            costPrice: d.costPrice,
+            discountPercentage: d.discountPercentage,
+            discountAmount: d.discountAmount,
+            promoPrice: Number(d.promoPrice) || 0,
+            secondUnitDiscountPercentage: d.secondUnitDiscountPercentage,
+            bulkMinQuantity: d.bulkMinQuantity,
+            bulkPricePerUnit: d.bulkPricePerUnit,
+            comboItems: d.comboItems,
+            urgencyLevel: d.urgencyLevel,
+            profitMarginPercent: d.profitMarginPercent,
+            isBelowCost: d.isBelowCost,
+            totalRecoverableRevenue: d.totalRecoverableRevenue,
+            message: d.message || '',
+            storeName: d.storeName || '',
+            validUntilText: d.validUntilText,
+            notes: d.notes,
+            createdAt: d.createdAt || new Date().toISOString(),
+            updatedAt: d.updatedAt || new Date().toISOString(),
+          });
+        });
+        callbacks.onPromotions(list);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, promotionsPath);
+      }
+    );
+
     return {
       unsubStore,
       unsubProducts,
       unsubBatches,
       unsubAlerts: () => {},
+      unsubPromotions,
     };
   },
 
@@ -235,6 +293,8 @@ export const firestoreSyncService = {
           category: product.category,
           unit: product.unit,
           barcode: product.barcode || null,
+          brand: product.brand || null,
+          imageUrl: product.imageUrl || null,
           costPrice: product.costPrice ?? null,
           salePrice: product.salePrice ?? null,
           notes: product.notes || null,
@@ -365,5 +425,114 @@ export const firestoreSyncService = {
       console.error('Migration error:', err);
       return count;
     }
+  },
+
+  /**
+   * Save Promotion to Firestore
+   * INVARIANT: Saving a promotion DOES NOT modify regular inventory prices or deduct stock.
+   */
+  async savePromotion(storeId: string, promotion: Promotion): Promise<void> {
+    const docRef = doc(db, 'stores', storeId, 'promotions', promotion.id);
+    const path = `stores/${storeId}/promotions/${promotion.id}`;
+
+    try {
+      await setDoc(docRef, {
+        ...promotion,
+        storeId,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  },
+
+  /**
+   * Update Promotion status (active, draft, ended)
+   */
+  async updatePromotionStatus(storeId: string, promotionId: string, status: PromotionStatus): Promise<void> {
+    const docRef = doc(db, 'stores', storeId, 'promotions', promotionId);
+    const path = `stores/${storeId}/promotions/${promotionId}`;
+
+    try {
+      await updateDoc(docRef, {
+        status,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.UPDATE, path);
+    }
+  },
+
+  /**
+   * Delete Promotion
+   */
+  async deletePromotion(storeId: string, promotionId: string): Promise<void> {
+    const docRef = doc(db, 'stores', storeId, 'promotions', promotionId);
+    const path = `stores/${storeId}/promotions/${promotionId}`;
+
+    try {
+      await deleteDoc(docRef);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, path);
+    }
+  },
+
+  /**
+   * Bulk import products and batches from Excel / CSV import
+   * Saves to /stores/{storeId}/products and /stores/{storeId}/batches
+   * Scoped to the authenticated user's storeId for strict data isolation.
+   */
+  async bulkImportProductsAndBatches(
+    storeId: string,
+    products: Product[],
+    batches: Batch[]
+  ): Promise<{ productsSaved: number; batchesSaved: number; errors: string[] }> {
+    let productsSaved = 0;
+    let batchesSaved = 0;
+    const errors: string[] = [];
+
+    // 1. Save products in parallel chunks of 20
+    const chunkSize = 20;
+    for (let i = 0; i < products.length; i += chunkSize) {
+      const chunk = products.slice(i, i + chunkSize);
+      await Promise.all(
+        chunk.map(async (prod) => {
+          try {
+            const prodRef = doc(db, 'stores', storeId, 'products', prod.id);
+            await setDoc(prodRef, {
+              ...prod,
+              storeId,
+              updatedAt: new Date().toISOString(),
+            });
+            productsSaved++;
+          } catch (err) {
+            console.error(`Error saving imported product ${prod.name}:`, err);
+            errors.push(`Error en producto ${prod.name}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        })
+      );
+    }
+
+    // 2. Save batches in parallel chunks of 20
+    for (let i = 0; i < batches.length; i += chunkSize) {
+      const chunk = batches.slice(i, i + chunkSize);
+      await Promise.all(
+        chunk.map(async (batch) => {
+          try {
+            const batchRef = doc(db, 'stores', storeId, 'batches', batch.id);
+            await setDoc(batchRef, {
+              ...batch,
+              storeId,
+            });
+            batchesSaved++;
+          } catch (err) {
+            console.error(`Error saving imported batch ${batch.id}:`, err);
+            errors.push(`Error en lote ${batch.id}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        })
+      );
+    }
+
+    return { productsSaved, batchesSaved, errors };
   }
 };

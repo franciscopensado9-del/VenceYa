@@ -262,7 +262,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="pt-2 flex items-center justify-end">
           <button
             type="submit"
-            className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-[#246B4D] hover:bg-[#174A36] text-white text-xs font-semibold transition shadow-xs active:scale-95"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 min-h-[44px] rounded-2xl bg-[#246B4D] hover:bg-[#174A36] text-white text-xs font-semibold transition shadow-xs active:scale-95"
           >
             {savedSuccess ? (
               <>
@@ -415,14 +415,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
 
         {/* Clear database action */}
-        <div className="pt-3 border-t border-[#E7EBE5] flex items-center justify-between">
+        <div className="pt-3 border-t border-[#E7EBE5] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
           <span className="text-xs text-[#78847C]">
             ¿Querés empezar de cero con una base completamente vacía?
           </span>
           <button
             type="button"
             onClick={() => setShowClearConfirm(true)}
-            className="text-xs text-[#C6533A] hover:underline flex items-center gap-1.5 transition font-semibold"
+            className="text-xs text-[#C6533A] hover:underline flex items-center gap-1.5 transition font-semibold min-h-[38px] active:scale-95"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Vaciar todos los datos</span>

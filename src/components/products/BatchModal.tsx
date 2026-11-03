@@ -23,7 +23,6 @@ export const BatchModal: React.FC<BatchModalProps> = ({
 }) => {
   const { userProfile } = useAuth();
   const [quantity, setQuantity] = useState<string>('1');
-  const [lotNumber, setLotNumber] = useState<string>('');
   const [expirationDate, setExpirationDate] = useState<string>('');
   const [costPrice, setCostPrice] = useState<string>('');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -32,13 +31,11 @@ export const BatchModal: React.FC<BatchModalProps> = ({
   useEffect(() => {
     if (batchToEdit) {
       setQuantity(String(batchToEdit.quantity));
-      setLotNumber(batchToEdit.lotNumber || '');
       setExpirationDate(batchToEdit.expirationDate);
       setCostPrice(batchToEdit.costPrice !== undefined ? String(batchToEdit.costPrice) : '');
       setErrors({});
     } else {
       setQuantity('1');
-      setLotNumber('');
       const defaultDate = new Date();
       defaultDate.setDate(defaultDate.getDate() + 7);
       setExpirationDate(formatDate(defaultDate));
@@ -47,15 +44,9 @@ export const BatchModal: React.FC<BatchModalProps> = ({
     }
   }, [batchToEdit, product, isOpen]);
 
-  const applyDatePreset = (daysOffset: number) => {
-    const target = new Date();
-    target.setDate(target.getDate() + daysOffset);
-    setExpirationDate(formatDate(target));
-  };
-
   const adjustQuantity = (delta: number) => {
     const current = Number(quantity) || 0;
-    const next = Math.max(0, current + delta);
+    const next = Math.max(1, current + delta);
     setQuantity(String(next));
   };
 
@@ -67,8 +58,8 @@ export const BatchModal: React.FC<BatchModalProps> = ({
     }
 
     const qtyNum = Number(quantity);
-    if (isNaN(qtyNum) || qtyNum < 0) {
-      errs.quantity = 'La cantidad debe ser mayor o igual a 0.';
+    if (isNaN(qtyNum) || qtyNum < 1) {
+      errs.quantity = 'La cantidad debe ser al menos 1 unidad.';
     }
 
     if (costPrice !== '' && (isNaN(Number(costPrice)) || Number(costPrice) < 0)) {
@@ -85,11 +76,17 @@ export const BatchModal: React.FC<BatchModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      const parsedCost = costPrice !== '' ? Number(costPrice) : undefined;
+      const parsedCost = costPrice.trim() !== '' ? Number(costPrice) : undefined;
+
+      // Auto-generar identificador de lote si es nuevo
+      const todayCode = formatDate(new Date()).replace(/-/g, '').slice(2);
+      const autoSuffix = Math.random().toString(36).substring(2, 5).toUpperCase();
+      const autoLot = batchToEdit?.lotNumber || `L-${todayCode}-${autoSuffix}`;
+
       const saved = storageService.saveBatch({
         productId: product.id,
-        lotNumber: lotNumber.trim() || undefined,
-        quantity: Number(quantity),
+        lotNumber: autoLot,
+        quantity: Math.max(1, Number(quantity) || 1),
         expirationDate,
         costPrice: parsedCost,
       }, batchToEdit?.id);
@@ -97,8 +94,8 @@ export const BatchModal: React.FC<BatchModalProps> = ({
       if (userProfile?.storeId && !storageService.isDemoActive()) {
         firestoreSyncService.saveBatch(userProfile.storeId, {
           productId: product.id,
-          lotNumber: lotNumber.trim() || undefined,
-          quantity: Number(quantity),
+          lotNumber: autoLot,
+          quantity: Math.max(1, Number(quantity) || 1),
           expirationDate,
           costPrice: parsedCost,
         }, saved.id).catch(err => console.warn('Batch cloud sync err:', err));
@@ -120,13 +117,13 @@ export const BatchModal: React.FC<BatchModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/45 backdrop-blur-xs animate-in fade-in duration-150">
       <div 
-        className="w-full max-w-md bg-white border border-[#E7EBE5] rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
+        className="w-full h-full sm:h-auto sm:max-w-md sm:max-h-[92vh] bg-white border-0 sm:border border-[#E7EBE5] rounded-none sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
       >
-        <div className="flex items-center justify-between px-6 py-4.5 border-b border-[#E7EBE5] bg-white">
+        <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-[#E7EBE5] bg-white shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-[#EAF3EC] text-[#246B4D] flex items-center justify-center shrink-0">
               <Layers className="w-5 h-5 stroke-[2.2]" />
@@ -135,21 +132,22 @@ export const BatchModal: React.FC<BatchModalProps> = ({
               <h2 className="text-base font-bold text-[#174A36]">
                 {batchToEdit ? 'Editar Lote' : 'Agregar Nuevo Lote'}
               </h2>
-              <p className="text-xs text-[#78847C] truncate max-w-[220px]">
+              <p className="text-xs text-[#78847C] truncate max-w-[200px] sm:max-w-[240px]">
                 {product.name}
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition"
+            className="p-2.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition min-w-[44px] min-h-[44px] flex items-center justify-center"
             aria-label="Cerrar modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
           {errors.form && (
             <div className="p-3.5 rounded-2xl bg-[#FCEBE5] border border-[#F5C2B6] text-[#C6533A] text-xs font-semibold">
               {errors.form}
@@ -157,38 +155,17 @@ export const BatchModal: React.FC<BatchModalProps> = ({
           )}
 
           {/* Expiration Date */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label htmlFor="batch-expiration-date" className="block text-xs font-semibold text-[#174A36] flex items-center gap-1.5">
+              <label htmlFor="batch-expiration-date" className="text-xs font-semibold text-[#174A36] flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-[#246B4D]" />
                 <span>Fecha de Vencimiento <span className="text-[#C6533A]">*</span></span>
               </label>
               {statusPreview && (
-                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusPreview.badgeClass}`}>
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${statusPreview.badgeClass}`}>
                   {statusPreview.label}
                 </span>
               )}
-            </div>
-
-            {/* Quick Date Presets Strip */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-              {[
-                { label: 'Mañana', days: 1 },
-                { label: '+3 días', days: 3 },
-                { label: '+7 días', days: 7 },
-                { label: '+15 días', days: 15 },
-                { label: '+1 mes', days: 30 },
-                { label: '+2 meses', days: 60 },
-              ].map(p => (
-                <button
-                  key={p.days}
-                  type="button"
-                  onClick={() => applyDatePreset(p.days)}
-                  className="px-2.5 py-1.5 rounded-xl bg-[#F8F9F6] hover:bg-[#EAF3EC] hover:text-[#246B4D] border border-[#E7EBE5] text-[11px] font-semibold text-[#78847C] whitespace-nowrap transition"
-                >
-                  {p.label}
-                </button>
-              ))}
             </div>
 
             <input
@@ -196,7 +173,8 @@ export const BatchModal: React.FC<BatchModalProps> = ({
               type="date"
               value={expirationDate}
               onChange={e => setExpirationDate(e.target.value)}
-              className={`w-full px-4 py-2.5 bg-[#F8F9F6] border rounded-2xl text-sm text-[#24372F] focus:outline-none focus:bg-white font-mono ${
+              required
+              className={`w-full min-h-[44px] px-4 py-2.5 bg-[#F8F9F6] border rounded-2xl text-sm text-[#24372F] focus:outline-none focus:bg-white font-mono transition ${
                 errors.expirationDate ? 'border-[#C6533A]' : 'border-[#E7EBE5] focus:border-[#246B4D]'
               }`}
             />
@@ -206,30 +184,33 @@ export const BatchModal: React.FC<BatchModalProps> = ({
           </div>
 
           {/* Quantity with Steppers */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <label htmlFor="batch-qty" className="block text-xs font-semibold text-[#174A36]">
-              Cantidad ({product.unit}) <span className="text-[#C6533A]">*</span>
+              Cantidad ({product.unit || 'unidades'}) <span className="text-[#C6533A]">*</span>
             </label>
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => adjustQuantity(-1)}
-                className="p-2.5 rounded-2xl bg-[#F8F9F6] hover:bg-[#E7EBE5] text-[#174A36] border border-[#E7EBE5] transition"
+                className="w-12 h-12 rounded-2xl bg-[#F8F9F6] hover:bg-[#E7EBE5] text-[#174A36] border border-[#E7EBE5] flex items-center justify-center transition active:scale-95 shrink-0"
                 title="Restar 1"
+                aria-label="Restar 1"
               >
-                <Minus className="w-4 h-4" />
+                <Minus className="w-5 h-5 stroke-[2.5]" />
               </button>
 
               <input
                 id="batch-qty"
                 type="number"
-                step="any"
-                min="0"
+                inputMode="numeric"
+                step="1"
+                min="1"
                 value={quantity}
                 onChange={e => setQuantity(e.target.value)}
                 placeholder="1"
-                className={`flex-1 px-4 py-2.5 bg-[#F8F9F6] border rounded-2xl text-sm text-center text-[#174A36] placeholder-[#78847C]/60 focus:outline-none focus:bg-white font-mono font-bold ${
+                required
+                className={`flex-1 h-12 px-4 bg-[#F8F9F6] border rounded-2xl text-base text-center text-[#174A36] font-mono font-bold focus:outline-none focus:bg-white transition ${
                   errors.quantity ? 'border-[#C6533A]' : 'border-[#E7EBE5] focus:border-[#246B4D]'
                 }`}
               />
@@ -237,46 +218,19 @@ export const BatchModal: React.FC<BatchModalProps> = ({
               <button
                 type="button"
                 onClick={() => adjustQuantity(1)}
-                className="p-2.5 rounded-2xl bg-[#F8F9F6] hover:bg-[#E7EBE5] text-[#174A36] border border-[#E7EBE5] transition"
+                className="w-12 h-12 rounded-2xl bg-[#F8F9F6] hover:bg-[#E7EBE5] text-[#174A36] border border-[#E7EBE5] flex items-center justify-center transition active:scale-95 shrink-0"
                 title="Sumar 1"
+                aria-label="Sumar 1"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-5 h-5 stroke-[2.5]" />
               </button>
-
-              <div className="flex items-center gap-1.5">
-                {[6, 12].map(step => (
-                  <button
-                    key={step}
-                    type="button"
-                    onClick={() => adjustQuantity(step)}
-                    className="px-3 py-2 rounded-xl bg-[#F8F9F6] hover:bg-[#EAF3EC] hover:text-[#246B4D] border border-[#E7EBE5] text-xs font-mono font-semibold text-[#78847C] transition"
-                  >
-                    +{step}
-                  </button>
-                ))}
-              </div>
             </div>
             {errors.quantity && (
               <p className="text-[#C6533A] text-xs mt-1 font-medium">{errors.quantity}</p>
             )}
           </div>
 
-          {/* Lot Number */}
-          <div>
-            <label htmlFor="batch-code" className="block text-xs font-semibold text-[#174A36] mb-1.5">
-              Código / Identificador de Lote (Opcional)
-            </label>
-            <input
-              id="batch-code"
-              type="text"
-              value={lotNumber}
-              onChange={e => setLotNumber(e.target.value)}
-              placeholder="Ej. Lote 24-B, Mañana, Depósito A"
-              className="w-full px-4 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-sm text-[#24372F] placeholder-[#78847C]/60 focus:outline-none focus:border-[#246B4D] focus:bg-white font-mono"
-            />
-          </div>
-
-          {/* Cost Price */}
+          {/* Cost Price (optional) */}
           <div>
             <label htmlFor="batch-cost" className="block text-xs font-semibold text-[#174A36] mb-1.5">
               Costo unitario de este lote ($ ARS, opcional)
@@ -284,27 +238,28 @@ export const BatchModal: React.FC<BatchModalProps> = ({
             <input
               id="batch-cost"
               type="number"
+              inputMode="decimal"
               step="any"
               min="0"
               value={costPrice}
               onChange={e => setCostPrice(e.target.value)}
               placeholder={product.costPrice ? String(product.costPrice) : '0.00'}
-              className="w-full px-4 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-sm text-[#24372F] placeholder-[#78847C]/60 focus:outline-none focus:border-[#246B4D] focus:bg-white font-mono"
+              className="w-full min-h-[44px] px-4 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-sm text-[#24372F] placeholder-[#78847C]/60 focus:outline-none focus:border-[#246B4D] focus:bg-white font-mono"
             />
           </div>
 
-          <div className="pt-2 flex items-center justify-end gap-2.5">
+          <div className="pt-4 flex flex-col-reverse sm:flex-row items-center sm:justify-end gap-2.5 pb-[max(env(safe-area-inset-bottom),8px)] sm:pb-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 text-xs font-semibold text-[#78847C] bg-[#F8F9F6] hover:bg-[#E7EBE5] rounded-2xl transition"
+              className="w-full sm:w-auto px-5 py-3 text-xs font-semibold text-[#78847C] bg-[#F8F9F6] hover:bg-[#E7EBE5] rounded-2xl transition min-h-[44px] flex items-center justify-center"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2.5 text-xs font-semibold text-white bg-[#246B4D] hover:bg-[#174A36] disabled:opacity-50 rounded-2xl transition flex items-center gap-2 active:scale-95 shadow-xs"
+              className="w-full sm:w-auto px-6 py-3 text-xs font-semibold text-white bg-[#246B4D] hover:bg-[#174A36] disabled:opacity-50 rounded-2xl transition flex items-center justify-center gap-2 active:scale-95 shadow-xs min-h-[44px]"
             >
               <Check className="w-4 h-4 stroke-[2.5]" />
               <span>{batchToEdit ? 'Guardar Lote' : 'Agregar Lote'}</span>

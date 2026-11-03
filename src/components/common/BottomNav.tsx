@@ -10,7 +10,9 @@ import {
   Settings, 
   LogOut, 
   X,
-  Store
+  Store,
+  RotateCcw,
+  FileSpreadsheet
 } from 'lucide-react';
 import { ActiveTab } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
@@ -19,12 +21,20 @@ interface BottomNavProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   unreadAlertsCount: number;
+  isDemoMode?: boolean;
+  onOpenDemo?: () => void;
+  onExitDemo?: () => void;
+  onOpenExcelImport?: () => void;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   setActiveTab,
   unreadAlertsCount,
+  isDemoMode = false,
+  onOpenDemo,
+  onExitDemo,
+  onOpenExcelImport,
 }) => {
   const { userProfile, logout } = useAuth();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
@@ -50,12 +60,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   return (
     <>
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Mobile Bottom Navigation Bar - Strict 44px+ hitboxes, safe area support */}
       <nav 
         aria-label="Navegación principal móvil"
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-[#E7EBE5] pb-safe shadow-xs select-none"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-[#E7EBE5] pb-[max(env(safe-area-inset-bottom),6px)] pt-1 shadow-xs select-none"
       >
-        <div className="grid grid-cols-5 items-center h-16 max-w-md mx-auto px-1">
+        <div className="grid grid-cols-5 items-center h-14 max-w-md mx-auto px-1">
           {mainTabs.map(tab => {
             const isActive = activeTab === tab.id;
             const Icon = tab.icon;
@@ -65,9 +75,10 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center justify-center h-full min-h-[44px] transition-colors relative ${
+                className={`flex flex-col items-center justify-center min-h-[48px] min-w-[44px] transition-colors relative active:scale-95 ${
                   isActive ? 'text-[#246B4D]' : 'text-[#78847C] hover:text-[#174A36]'
                 }`}
+                aria-label={tab.label}
               >
                 <div className="relative">
                   <Icon className={`w-5 h-5 transition-transform ${isActive ? 'scale-110 stroke-[2.3]' : 'stroke-[1.8]'}`} />
@@ -77,11 +88,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                     </span>
                   )}
                 </div>
-                <span className={`text-[10px] tracking-tight mt-1 truncate max-w-[60px] ${
+                <span className={`text-[10px] tracking-tight mt-0.5 truncate max-w-[62px] ${
                   isActive ? 'font-bold text-[#174A36]' : 'font-medium text-[#78847C]'
                 }`}>
                   {tab.label}
                 </span>
+                {isActive && (
+                  <span className="absolute bottom-0 w-8 h-0.5 rounded-full bg-[#246B4D]" />
+                )}
               </button>
             );
           })}
@@ -90,18 +104,22 @@ export const BottomNav: React.FC<BottomNavProps> = ({
           <button
             type="button"
             onClick={() => setIsMoreOpen(true)}
-            className={`flex flex-col items-center justify-center h-full min-h-[44px] transition-colors relative ${
+            className={`flex flex-col items-center justify-center min-h-[48px] min-w-[44px] transition-colors relative active:scale-95 ${
               isMoreActive ? 'text-[#246B4D]' : 'text-[#78847C] hover:text-[#174A36]'
             }`}
+            aria-label="Más opciones"
           >
             <div className="relative">
               <MoreHorizontal className={`w-5 h-5 transition-transform ${isMoreActive ? 'scale-110 stroke-[2.3]' : 'stroke-[1.8]'}`} />
             </div>
-            <span className={`text-[10px] tracking-tight mt-1 truncate max-w-[60px] ${
+            <span className={`text-[10px] tracking-tight mt-0.5 truncate max-w-[62px] ${
               isMoreActive ? 'font-bold text-[#174A36]' : 'font-medium text-[#78847C]'
             }`}>
               Más
             </span>
+            {isMoreActive && (
+              <span className="absolute bottom-0 w-8 h-0.5 rounded-full bg-[#246B4D]" />
+            )}
           </button>
         </div>
       </nav>
@@ -110,22 +128,25 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       {isMoreOpen && (
         <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
           <div 
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
             onClick={() => setIsMoreOpen(false)}
           />
-          <div className="relative w-full bg-white rounded-t-3xl border-t border-[#E7EBE5] p-6 pb-safe shadow-2xl z-10 animate-in slide-in-from-bottom duration-200 space-y-4">
+          <div className="relative w-full max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl border-t border-[#E7EBE5] p-5 sm:p-6 pb-[max(env(safe-area-inset-bottom),20px)] shadow-2xl z-10 animate-in slide-in-from-bottom duration-200 space-y-4">
             
+            {/* Sheet Handle */}
+            <div className="w-12 h-1 bg-[#E7EBE5] rounded-full mx-auto -mt-1 mb-2" />
+
             {/* Header */}
             <div className="flex items-center justify-between pb-3 border-b border-[#E7EBE5]">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-[#EAF3EC] text-[#246B4D] flex items-center justify-center">
+                <div className="w-9 h-9 rounded-2xl bg-[#EAF3EC] text-[#246B4D] flex items-center justify-center shrink-0">
                   <Store className="w-4 h-4" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs font-bold text-[#174A36] truncate">
                     {userProfile?.storeName || 'Mi Comercio'}
                   </div>
-                  <div className="text-[11px] text-[#78847C]">
+                  <div className="text-[11px] text-[#78847C] truncate">
                     {userProfile?.email}
                   </div>
                 </div>
@@ -133,52 +154,101 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               <button
                 type="button"
                 onClick={() => setIsMoreOpen(false)}
-                className="p-1.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6]"
+                className="p-2 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] min-h-[44px] min-w-[44px] flex items-center justify-center"
+                aria-label="Cerrar menú"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Menu List */}
+            {/* Secondary Sections */}
             <div className="space-y-1">
               <button
                 type="button"
                 onClick={() => handleSelectMoreOption('suggestions')}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs font-semibold transition ${
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs font-semibold transition min-h-[44px] ${
                   activeTab === 'suggestions' 
                     ? 'bg-[#EAF3EC] text-[#174A36]' 
                     : 'text-[#24372F] hover:bg-[#F8F9F6]'
                 }`}
               >
-                <Sparkles className="w-4 h-4 text-[#246B4D]" />
-                <span>Sugerencias para Reducir Pérdidas</span>
+                <Sparkles className="w-4 h-4 text-[#246B4D] shrink-0" />
+                <span>Sugerencias y promociones</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleSelectMoreOption('results')}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs font-semibold transition ${
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs font-semibold transition min-h-[44px] ${
                   activeTab === 'results' 
                     ? 'bg-[#EAF3EC] text-[#174A36]' 
                     : 'text-[#24372F] hover:bg-[#F8F9F6]'
                 }`}
               >
-                <TrendingUp className="w-4 h-4 text-[#246B4D]" />
-                <span>Resultados y Métricas del Comercio</span>
+                <TrendingUp className="w-4 h-4 text-[#246B4D] shrink-0" />
+                <span>Resultados</span>
               </button>
+
+              {onOpenExcelImport && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMoreOpen(false);
+                    onOpenExcelImport();
+                  }}
+                  className="w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs font-semibold text-[#24372F] hover:bg-[#F8F9F6] transition min-h-[44px]"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-[#246B4D] shrink-0" />
+                  <span>Importar desde Excel</span>
+                </button>
+              )}
 
               <button
                 type="button"
                 onClick={() => handleSelectMoreOption('settings')}
-                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs font-semibold transition ${
+                className={`w-full flex items-center gap-3.5 px-4 py-3 rounded-2xl text-xs font-semibold transition min-h-[44px] ${
                   activeTab === 'settings' 
                     ? 'bg-[#EAF3EC] text-[#174A36]' 
                     : 'text-[#24372F] hover:bg-[#F8F9F6]'
                 }`}
               >
-                <Settings className="w-4 h-4 text-[#78847C]" />
-                <span>Configuración y Respaldos</span>
+                <Settings className="w-4 h-4 text-[#78847C] shrink-0" />
+                <span>Ajustes</span>
               </button>
+            </div>
+
+            {/* Demo Mode Action in Mobile Menu */}
+            <div className="pt-2 border-t border-[#E7EBE5]">
+              {isDemoMode ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMoreOpen(false);
+                    if (onExitDemo) onExitDemo();
+                  }}
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-2xl bg-[#FFF3D9] border border-[#FBEAC4] text-[#A66B16] text-xs font-bold transition min-h-[44px]"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Modo Demo Activo (Salir y ver mis datos)</span>
+                  </div>
+                  <span className="text-[11px] underline">Salir</span>
+                </button>
+              ) : (
+                onOpenDemo && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreOpen(false);
+                      onOpenDemo();
+                    }}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-[#EAF3EC] border border-[#D5E8D7] text-[#246B4D] text-xs font-bold transition min-h-[44px]"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>Probar demo con 13 productos de ejemplo</span>
+                  </button>
+                )
+              )}
             </div>
 
             {/* Logout button */}
@@ -186,7 +256,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               <button
                 type="button"
                 onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-[#FCEBE5] hover:bg-[#F9DDD3] text-[#C6533A] text-xs font-bold transition"
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-[#FCEBE5] hover:bg-[#F9DDD3] text-[#C6533A] text-xs font-bold transition min-h-[44px]"
               >
                 <LogOut className="w-4 h-4" />
                 <span>Cerrar Sesión</span>

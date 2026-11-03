@@ -1,36 +1,45 @@
 import React from 'react';
-import { Sprout, Plus, ArrowRight, ShieldCheck, Check } from 'lucide-react';
+import { Sprout, Plus, ArrowRight, ShieldCheck, Check, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface WelcomeOnboardingModalProps {
   isOpen: boolean;
   onOpenAddProduct: () => void;
   onExplore: () => void;
+  onOpenExcelImport?: () => void;
 }
 
 export const WelcomeOnboardingModal: React.FC<WelcomeOnboardingModalProps> = ({
   isOpen,
   onOpenAddProduct,
   onExplore,
+  onOpenExcelImport,
 }) => {
   const { userProfile, dismissWelcome } = useAuth();
 
   if (!isOpen) return null;
 
-  const handleAddFirstProduct = () => {
-    dismissWelcome();
+  const handleAddFirstProduct = async () => {
+    await dismissWelcome();
     onOpenAddProduct();
   };
 
-  const handleExploreApp = () => {
-    dismissWelcome();
+  const handleExploreApp = async () => {
+    await dismissWelcome();
     onExplore();
   };
 
+  const handleImportExcel = async () => {
+    await dismissWelcome();
+    if (onOpenExcelImport) {
+      onOpenExcelImport();
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
       <div 
-        className="w-full max-w-lg bg-white border border-[#E7EBE5] rounded-3xl p-6 sm:p-8 shadow-2xl animate-in zoom-in-95 duration-200 text-center"
+        className="w-full max-w-lg max-h-[92vh] overflow-y-auto bg-white border border-[#E7EBE5] rounded-3xl p-5 sm:p-8 shadow-2xl animate-in zoom-in-95 duration-200 text-center"
         role="dialog"
         aria-modal="true"
       >
@@ -92,6 +101,23 @@ export const WelcomeOnboardingModal: React.FC<WelcomeOnboardingModalProps> = ({
             <ArrowRight className="w-4 h-4 text-[#78847C]" />
           </button>
         </div>
+
+        {/* Alternative: Excel Import */}
+        {onOpenExcelImport && (
+          <div className="mt-5 pt-4 border-t border-[#E7EBE5] text-center">
+            <p className="text-xs text-[#78847C] mb-2.5">
+              ¿Ya tenés tu inventario en Excel? Importalo a VenceYa y evitá cargar tus productos manualmente.
+            </p>
+            <button
+              type="button"
+              onClick={handleImportExcel}
+              className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-[#246B4D] hover:text-[#174A36] bg-[#EAF3EC] hover:bg-[#D5E8D7] border border-[#D5E8D7] rounded-xl transition active:scale-95"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-[#246B4D]" />
+              <span>Importar desde Excel (.xlsx, .xls, .csv)</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

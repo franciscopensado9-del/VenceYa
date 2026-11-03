@@ -21,6 +21,7 @@ export interface UserProfile {
   displayName: string;
   storeId: string;
   storeName: string;
+  hasSeenWelcome?: boolean;
 }
 
 interface AuthContextType {
@@ -33,7 +34,7 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   logout: () => Promise<void>;
-  dismissWelcome: () => void;
+  dismissWelcome: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -61,13 +62,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (userSnap.exists()) {
             const data = userSnap.data();
+            const hasSeen = data.hasSeenWelcome === true || localStorage.getItem(`venceya_welcome_seen_${currentUser.uid}`) === 'true';
             setUserProfile({
               id: currentUser.uid,
               email: currentUser.email || '',
               displayName: data.displayName || currentUser.displayName || 'Comerciante',
               storeId: data.storeId || currentUser.uid,
               storeName: data.storeName || 'Mi Almacén',
+              hasSeenWelcome: hasSeen,
             });
+            // If the user already has a profile and already saw welcome, don't show it again on reload/login
+            if (hasSeen) {
+              setIsNewUser(false);
+            }
           } else {
             // First time Google login or missing profile: create standard profile
             const storeName = currentUser.displayName 
@@ -80,6 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               displayName: currentUser.displayName || 'Comerciante',
               storeId: currentUser.uid,
               storeName,
+              hasSeenWelcome: false,
             };
 
             await setDoc(userDocRef, {
@@ -101,10 +109,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             displayName: currentUser.displayName || 'Comerciante',
             storeId: currentUser.uid,
             storeName: 'Mi Comercio',
+            hasSeenWelcome: false,
           });
         }
       } else {
         setUserProfile(null);
+        setIsNewUser(false);
       }
 
       setLoading(false);
@@ -119,6 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const cred = await signInWithEmailAndPassword(auth, email.trim(), pass);
     setUser(cred.user);
+    setIsNewUser(false);
   };
 
   const registerWithEmail = async (name: string, storeName: string, email: string, pass: string) => {
@@ -137,6 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       displayName: name.trim(),
       storeId: cred.user.uid,
       storeName: storeName.trim() || 'Mi Comercio',
+      hasSeenWelcome: false,
     };
 
     await setDoc(userDocRef, {
@@ -170,8 +182,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsNewUser(false);
   };
 
-  const dismissWelcome = () => {
+  const dismissWelcome = async () => {
     setIsNewUser(false);
+    if (user?.uid) {
+      try {
+        localStorage.setItem(`venceya_welcome_seen_${user.uid}`, 'true');
+        setUserProfile(prev => prev ? { ...prev, hasSeenWelcome: true } : null);
+        const userDocRef = doc(db, 'users', user.uid);
+        await setDoc(userDocRef, { hasSeenWelcome: true }, { merge: true });
+      } catch (err) {
+        console.warn('Could not persist hasSeenWelcome flag:', err);
+      }
+    }
   };
 
   return (

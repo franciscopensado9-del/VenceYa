@@ -7,7 +7,9 @@ import {
   SalesSuggestion, 
   StoreSettings, 
   Product, 
-  Batch 
+  Batch,
+  Promotion,
+  PromotionType
 } from './types';
 import { storageService } from './services/storage';
 import { firestoreSyncService } from './services/firestoreSync';
@@ -32,6 +34,9 @@ import { WelcomeOnboardingModal } from './components/auth/WelcomeOnboardingModal
 import { BarcodeScannerModal } from './components/scanner/BarcodeScannerModal';
 import { ProductFormModal } from './components/products/ProductFormModal';
 import { ProductDetailModal } from './components/products/ProductDetailModal';
+import { PromotionModal } from './components/promotions/PromotionModal';
+import { SavedPromotionsModal } from './components/promotions/SavedPromotionsModal';
+import { ExcelImportModal } from './components/products/ExcelImportModal';
 import { Sprout, RotateCcw, LogOut } from 'lucide-react';
 
 export default function App() {
@@ -57,10 +62,20 @@ export default function App() {
   // Modal Control States
   const [isScanOpen, setIsScanOpen] = useState(false);
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [initialBarcode, setInitialBarcode] = useState<string>('');
   const [lookupData, setLookupData] = useState<BarcodeLookupResult | undefined>(undefined);
   const [selectedProductForDetail, setSelectedProductForDetail] = useState<ProductWithBatches | null>(null);
+
+  // Promotion Modal States
+  const [savedPromotions, setSavedPromotions] = useState<Promotion[]>([]);
+  const [isPromotionModalOpen, setIsPromotionModalOpen] = useState(false);
+  const [selectedProductForPromo, setSelectedProductForPromo] = useState<ProductWithBatches | null>(null);
+  const [selectedBatchForPromo, setSelectedBatchForPromo] = useState<Batch | undefined>(undefined);
+  const [promoInitialDiscount, setPromoInitialDiscount] = useState<number | undefined>(undefined);
+  const [promoInitialType, setPromoInitialType] = useState<PromotionType | undefined>(undefined);
+  const [isSavedPromotionsModalOpen, setIsSavedPromotionsModalOpen] = useState(false);
 
   // Load and refresh all datasets
   const loadData = useCallback(() => {
@@ -69,12 +84,14 @@ export default function App() {
     const alts = storageService.getAlerts();
     const suggs = storageService.getSalesSuggestions();
     const stts = storageService.getSettings();
+    const promos = storageService.getPromotions();
 
     setProductsWithBatches(pwb);
     setBatchesWithProduct(bwp);
     setAlerts(alts);
     setSuggestions(suggs);
     setSettings(stts);
+    setSavedPromotions(promos);
 
     // Keep selected product in sync if detail modal is open
     setSelectedProductForDetail(current => {
@@ -136,6 +153,12 @@ export default function App() {
           loadData();
         }
       },
+      onPromotions: (cloudPromotions) => {
+        if (!storageService.isDemoActive()) {
+          storageService.setCloudPromotions(cloudPromotions);
+          loadData();
+        }
+      },
       onError: (err) => {
         console.warn('Firestore subscription warning:', err);
       }
@@ -146,6 +169,9 @@ export default function App() {
       unsubscribers.unsubProducts();
       unsubscribers.unsubBatches();
       unsubscribers.unsubAlerts();
+      if (unsubscribers.unsubPromotions) {
+        unsubscribers.unsubPromotions();
+      }
     };
   }, [user, userProfile?.storeId, loadData]);
 
@@ -220,6 +246,23 @@ export default function App() {
     setInitialBarcode(product.barcode || '');
     setLookupData(undefined);
     setIsProductFormOpen(true);
+  };
+
+  const handleOpenPromotion = (
+    product: ProductWithBatches,
+    batch?: Batch,
+    discount?: number,
+    type?: PromotionType
+  ) => {
+    setSelectedProductForPromo(product);
+    setSelectedBatchForPromo(batch);
+    setPromoInitialDiscount(discount);
+    setPromoInitialType(type);
+    setIsPromotionModalOpen(true);
+  };
+
+  const handleOpenSavedPromotions = () => {
+    setIsSavedPromotionsModalOpen(true);
   };
 
   // Auth Loading Screen
@@ -349,6 +392,9 @@ export default function App() {
               isDemoMode={isDemoMode}
               onOpenDemo={handleOpenDemoModal}
               onExitDemo={handleRequestExitDemo}
+              onOpenPromotion={handleOpenPromotion}
+              onOpenSavedPromotions={handleOpenSavedPromotions}
+              onOpenExcelImport={() => setIsExcelImportOpen(true)}
             />
           )}
 
@@ -362,6 +408,8 @@ export default function App() {
               onEditProduct={p => handleEditProduct(p)}
               isDemoMode={isDemoMode}
               onOpenDemo={handleOpenDemoModal}
+              onOpenPromotion={handleOpenPromotion}
+              onOpenExcelImport={() => setIsExcelImportOpen(true)}
             />
           )}
 
@@ -398,6 +446,7 @@ export default function App() {
               productsWithBatches={productsWithBatches}
               settings={settings}
               onSelectProduct={p => setSelectedProductForDetail(p)}
+              onOpenPromotion={handleOpenPromotion}
             />
           )}
 
@@ -434,6 +483,10 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         unreadAlertsCount={unreadAlertsCount}
+        isDemoMode={isDemoMode}
+        onOpenDemo={handleOpenDemoModal}
+        onExitDemo={handleRequestExitDemo}
+        onOpenExcelImport={() => setIsExcelImportOpen(true)}
       />
 
       {/* Non-intrusive Offline Toast */}
@@ -443,7 +496,10 @@ export default function App() {
       <WelcomeOnboardingModal
         isOpen={isNewUser}
         onOpenAddProduct={handleOpenManualAdd}
-        onExplore={() => {}}
+        onExplore={() => {
+          setActiveTab('dashboard');
+        }}
+        onOpenExcelImport={() => setIsExcelImportOpen(true)}
       />
 
       {/* Demo Confirmation Modal */}
@@ -471,6 +527,7 @@ export default function App() {
             setIsScanOpen(false);
             handleOpenManualAdd();
           }}
+          onItemSaved={loadData}
         />
       )}
 
@@ -487,6 +544,7 @@ export default function App() {
           productToEdit={productToEdit}
           initialBarcode={initialBarcode}
           lookupData={lookupData}
+          onOpenExcelImport={() => setIsExcelImportOpen(true)}
         />
       )}
 
@@ -496,6 +554,7 @@ export default function App() {
           onClose={() => setSelectedProductForDetail(null)}
           productWithBatches={selectedProductForDetail}
           onRefresh={loadData}
+          onOpenPromotion={(prod, batch) => handleOpenPromotion(prod, batch)}
           onEditProduct={() => {
             const p = selectedProductForDetail;
             setSelectedProductForDetail(null);
@@ -508,6 +567,56 @@ export default function App() {
             }
             storageService.deleteProduct(selectedProductForDetail.id);
             setSelectedProductForDetail(null);
+            loadData();
+          }}
+        />
+      )}
+
+      {/* Commercial Promotion Generator Modal */}
+      {isPromotionModalOpen && selectedProductForPromo && (
+        <PromotionModal
+          isOpen={isPromotionModalOpen}
+          onClose={() => {
+            setIsPromotionModalOpen(false);
+            setSelectedProductForPromo(null);
+            setSelectedBatchForPromo(undefined);
+            setPromoInitialDiscount(undefined);
+            setPromoInitialType(undefined);
+          }}
+          product={selectedProductForPromo}
+          allProducts={productsWithBatches}
+          settings={settings}
+          initialBatch={selectedBatchForPromo}
+          initialDiscountPercent={promoInitialDiscount}
+          initialType={promoInitialType}
+          onSavedPromotion={() => {
+            loadData();
+          }}
+        />
+      )}
+
+      {/* Saved Promotions History & Management Modal */}
+      {isSavedPromotionsModalOpen && (
+        <SavedPromotionsModal
+          isOpen={isSavedPromotionsModalOpen}
+          onClose={() => setIsSavedPromotionsModalOpen(false)}
+          promotions={savedPromotions}
+          onRefresh={loadData}
+          onOpenNewPromo={() => {
+            if (productsWithBatches.length > 0) {
+              handleOpenPromotion(productsWithBatches[0]);
+            }
+          }}
+        />
+      )}
+
+      {/* Excel Inventory Import Wizard Modal */}
+      {isExcelImportOpen && (
+        <ExcelImportModal
+          isOpen={isExcelImportOpen}
+          onClose={() => setIsExcelImportOpen(false)}
+          existingProducts={productsWithBatches}
+          onImportComplete={() => {
             loadData();
           }}
         />

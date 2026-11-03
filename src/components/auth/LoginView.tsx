@@ -81,7 +81,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSwitchToRegister, onCont
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9F6] text-[#24372F] flex items-center justify-center p-4 sm:p-6 lg:p-10 font-sans selection:bg-[#246B4D] selection:text-white">
+    <div className="min-h-screen bg-[#F8F9F6] text-[#24372F] flex items-center justify-center p-3 sm:p-6 lg:p-10 font-sans selection:bg-[#246B4D] selection:text-white">
       <div className="w-full max-w-5xl bg-white border border-[#E7EBE5] rounded-3xl shadow-sm overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-[600px]">
         
         {/* Brand Side Showcase (Visible on Desktop) */}
@@ -101,7 +101,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSwitchToRegister, onCont
                   venceya
                 </span>
                 <span className="block text-xs text-emerald-200/90 font-medium">
-                  menos merma, más venta
+                  Controlá tu stock
                 </span>
               </div>
             </div>
@@ -147,7 +147,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSwitchToRegister, onCont
         </div>
 
         {/* Login Form Column (Mobile & Desktop) */}
-        <div className="lg:col-span-7 p-6 sm:p-10 lg:p-12 flex flex-col justify-center">
+        <div className="lg:col-span-7 p-5 sm:p-10 lg:p-12 flex flex-col justify-center">
           {/* Mobile Top Brand Header */}
           <div className="lg:hidden flex items-center gap-2.5 mb-6">
             <div className="w-10 h-10 rounded-2xl bg-[#EAF3EC] text-[#246B4D] flex items-center justify-center shrink-0 shadow-xs">
@@ -156,9 +156,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSwitchToRegister, onCont
             <div>
               <div className="text-xl font-bold tracking-tight text-[#174A36] lowercase">
                 venceya
-              </div>
-              <div className="text-xs text-[#78847C]">
-                menos merma, más venta
               </div>
             </div>
           </div>

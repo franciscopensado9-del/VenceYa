@@ -95,6 +95,18 @@ service cloud.firestore {
           request.resource.data.storeId == resource.data.storeId;
         allow delete: if isStoreOwner(storeId);
       }
+
+      // Subcollection: Promotions
+      match /promotions/{promotionId} {
+        allow read: if isStoreOwner(storeId);
+        allow create: if isStoreOwner(storeId) &&
+          isValidId(promotionId) &&
+          request.resource.data.storeId == storeId &&
+          request.resource.data.title is string;
+        allow update: if isStoreOwner(storeId) &&
+          request.resource.data.storeId == resource.data.storeId;
+        allow delete: if isStoreOwner(storeId);
+      }
     }
   }
 }

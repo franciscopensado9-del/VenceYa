@@ -3,17 +3,14 @@ import {
   CalendarClock, 
   Search, 
   AlertTriangle, 
-  Flame, 
-  Calendar, 
+  Clock, 
   CheckCircle2, 
-  MinusCircle, 
-  AlertOctagon, 
-  Barcode, 
   Package, 
-  ExternalLink 
+  X,
+  ArrowRight
 } from 'lucide-react';
-import { BatchWithProduct, ProductWithBatches, ExpirationStatus } from '../../types';
-import { getStatusLabel, storageService } from '../../services/storage';
+import { BatchWithProduct, ProductWithBatches } from '../../types';
+import { storageService } from '../../services/storage';
 import { firestoreSyncService } from '../../services/firestoreSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { soundService } from '../../services/sound';
@@ -25,7 +22,7 @@ interface ExpirationsViewProps {
   onSelectProduct: (product: ProductWithBatches) => void;
 }
 
-type ExpirationFilterTab = 'all' | 'expired' | 'today' | '3d' | '7d' | '30d' | 'safe';
+type ExpirationUrgencyTab = 'all' | 'expired' | 'soon' | 'safe';
 
 export const ExpirationsView: React.FC<ExpirationsViewProps> = ({
   batchesWithProduct,
@@ -34,43 +31,36 @@ export const ExpirationsView: React.FC<ExpirationsViewProps> = ({
   onSelectProduct,
 }) => {
   const { userProfile } = useAuth();
-  const [activeTab, setActiveTab] = useState<ExpirationFilterTab>('all');
+  const [activeTab, setActiveTab] = useState<ExpirationUrgencyTab>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [quickAdjustBatch, setQuickAdjustBatch] = useState<{ batch: BatchWithProduct; action: 'sell' | 'waste' } | null>(null);
   const [adjustAmount, setAdjustAmount] = useState<string>('1');
 
-  // Breakdown counts
+  // Breakdown by the 3 requested urgency tiers
+  const activeBatches = useMemo(() => {
+    return batchesWithProduct.filter(b => b.quantity > 0);
+  }, [batchesWithProduct]);
+
   const counts = useMemo(() => {
     const res = {
-      all: 0,
+      all: activeBatches.length,
       expired: 0,
-      today: 0,
-      '3d': 0,
-      '7d': 0,
-      '30d': 0,
+      soon: 0,
       safe: 0,
     };
 
-    for (const b of batchesWithProduct) {
-      if (b.quantity <= 0) continue;
-      res.all++;
-      const d = b.daysRemaining;
-      if (d < 0) res.expired++;
-      else if (d === 0) res.today++;
-      else if (d <= 3) res['3d']++;
-      else if (d <= 7) res['7d']++;
-      else if (d <= 30) res['30d']++;
+    for (const b of activeBatches) {
+      if (b.daysRemaining < 0) res.expired++;
+      else if (b.daysRemaining <= 7) res.soon++;
       else res.safe++;
     }
 
     return res;
-  }, [batchesWithProduct]);
+  }, [activeBatches]);
 
-  // Filtered batches
+  // Filter batches
   const filteredBatches = useMemo(() => {
-    return batchesWithProduct.filter(item => {
-      if (item.quantity <= 0) return false;
-
+    return activeBatches.filter(item => {
       // Search
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase().trim();
@@ -80,18 +70,17 @@ export const ExpirationsView: React.FC<ExpirationsViewProps> = ({
         if (!matchesName && !matchesLot && !matchesBarcode) return false;
       }
 
-      // Filter tab
-      const d = item.daysRemaining;
-      if (activeTab === 'expired') return d < 0;
-      if (activeTab === 'today') return d === 0;
-      if (activeTab === '3d') return d >= 1 && d <= 3;
-      if (activeTab === '7d') return d >= 4 && d <= 7;
-      if (activeTab === '30d') return d >= 8 && d <= 30;
-      if (activeTab === 'safe') return d > 30;
+      // 3 urgency tiers
+      if (activeTab === 'expired') return item.daysRemaining < 0;
+      if (activeTab === 'soon') return item.daysRemaining >= 0 && item.daysRemaining <= 7;
+      if (activeTab === 'safe') return item.daysRemaining > 7;
 
       return true;
+    }).sort((a, b) => {
+      // Sort strictly by PEPS (earliest expiration first)
+      return a.expirationDate.localeCompare(b.expirationDate);
     });
-  }, [batchesWithProduct, activeTab, searchTerm]);
+  }, [activeBatches, activeTab, searchTerm]);
 
   const handleOpenAdjust = (batch: BatchWithProduct, action: 'sell' | 'waste') => {
     setQuickAdjustBatch({ batch, action });
@@ -113,182 +102,228 @@ export const ExpirationsView: React.FC<ExpirationsViewProps> = ({
     onRefresh();
   };
 
-  const tabsConfig: { id: ExpirationFilterTab; label: string; count: number; badgeColor: string }[] = [
-    { id: 'all', label: 'Todos los lotes', count: counts.all, badgeColor: 'bg-[#F8F9F6] text-[#78847C]' },
-    { id: 'expired', label: 'Vencidos', count: counts.expired, badgeColor: 'bg-[#FCEBE5] text-[#C6533A]' },
-    { id: 'today', label: 'Vencen hoy', count: counts.today, badgeColor: 'bg-[#FFF3D9] text-[#A66B16]' },
-    { id: '3d', label: 'Próx. 3 días', count: counts['3d'], badgeColor: 'bg-[#FFF3D9] text-[#A66B16]' },
-    { id: '7d', label: 'Próx. 7 días', count: counts['7d'], badgeColor: 'bg-[#FFF3D9] text-[#A66B16]' },
-    { id: '30d', label: 'Próx. 30 días', count: counts['30d'], badgeColor: 'bg-[#E8F3E9] text-[#246B4D]' },
-    { id: 'safe', label: 'Sin vencimiento próximo', count: counts.safe, badgeColor: 'bg-[#E8F3E9] text-[#246B4D]' },
-  ];
+  const formatShortDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const m = months[parseInt(parts[1], 10) - 1] || parts[1];
+    return `${parseInt(parts[2], 10)} ${m} ${parts[0]}`;
+  };
+
+  const getUrgencyBadge = (days: number) => {
+    if (days < 0) {
+      return {
+        label: `Venció hace ${Math.abs(days)}d`,
+        colorClass: 'bg-[#FCEBE5] text-[#C6533A]',
+      };
+    }
+    if (days === 0) {
+      return {
+        label: 'Vence hoy',
+        colorClass: 'bg-[#FCEBE5] text-[#C6533A]',
+      };
+    }
+    if (days === 1) {
+      return {
+        label: 'Vence mañana',
+        colorClass: 'bg-[#FFF3D9] text-[#A66B16]',
+      };
+    }
+    if (days <= 7) {
+      return {
+        label: `Vence en ${days}d`,
+        colorClass: 'bg-[#FFF3D9] text-[#A66B16]',
+      };
+    }
+    return {
+      label: `En ${days}d`,
+      colorClass: 'bg-[#EAF3EC] text-[#246B4D]',
+    };
+  };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="space-y-6 animate-in fade-in duration-150">
       {/* Title */}
       <div>
-        <div className="text-[11px] font-bold uppercase tracking-wider text-[#78847C]">
-          SEGUIMIENTO CRONOLÓGICO
-        </div>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#174A36] tracking-tight mt-1 flex items-center gap-2.5">
-          <CalendarClock className="w-7 h-7 text-[#246B4D]" />
-          <span>Control de Vencimientos</span>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#174A36] tracking-tight">
+          Vencimientos
         </h1>
-        <p className="text-sm text-[#78847C] mt-0.5">
-          Clasificación temporal para priorizar la rotación y reducir pérdidas
+        <p className="text-xs sm:text-sm text-[#78847C] mt-0.5">
+          Organizados por orden de urgencia para priorizar su rotación.
         </p>
       </div>
 
-      {/* Segmented Filter Pills */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-        {tabsConfig.map(tab => {
-          const isActive = activeTab === tab.id;
-          return (
+      {/* 3 Urgency Tabs + Search */}
+      <div className="p-3.5 sm:p-4 rounded-3xl bg-white border border-[#E7EBE5] space-y-3 shadow-xs">
+        {/* Search */}
+        <div className="relative">
+          <Search className="w-4 h-4 text-[#78847C] absolute left-3.5 top-3.5 pointer-events-none" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="Buscar por producto o lote..."
+            className="w-full pl-10 pr-9 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-xs sm:text-sm text-[#24372F] placeholder-[#78847C] focus:outline-none focus:border-[#246B4D] focus:bg-white transition"
+          />
+          {searchTerm && (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-2xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors ${
-                isActive 
-                  ? 'bg-[#246B4D] text-white shadow-xs' 
-                  : 'bg-white border border-[#E7EBE5] text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6]'
-              }`}
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-3 top-2.5 text-[#78847C] hover:text-[#174A36] p-1"
             >
-              <span>{tab.label}</span>
-              <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono tabular-nums ${
-                isActive ? 'bg-white/20 text-white font-bold' : tab.badgeColor
-              }`}>
-                {tab.count}
-              </span>
+              <X className="w-4 h-4" />
             </button>
-          );
-        })}
-      </div>
+          )}
+        </div>
 
-      {/* Search Filter */}
-      <div className="relative">
-        <Search className="w-4 h-4 text-[#78847C] absolute left-3.5 top-3.5 pointer-events-none" />
-        <input
-          type="text"
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-          placeholder="Buscar lote o producto en esta categoría..."
-          className="w-full pl-10 pr-4 py-2.5 bg-white border border-[#E7EBE5] rounded-2xl text-xs sm:text-sm text-[#24372F] placeholder-[#78847C] focus:outline-none focus:border-[#246B4D] shadow-xs"
-        />
-        {searchTerm && (
+        {/* 3 Urgency Filter Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
           <button
-            onClick={() => setSearchTerm('')}
-            className="absolute right-3 top-3 text-xs text-[#78847C] hover:text-[#174A36]"
+            type="button"
+            onClick={() => setActiveTab('all')}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition min-h-[40px] flex items-center gap-1.5 ${
+              activeTab === 'all'
+                ? 'bg-[#174A36] text-white shadow-2xs'
+                : 'bg-[#F8F9F6] text-[#78847C] hover:text-[#174A36]'
+            }`}
           >
-            Limpiar
+            <span>Todos</span>
+            <span className="font-mono text-[11px] opacity-80">({counts.all})</span>
           </button>
-        )}
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('expired')}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition min-h-[40px] flex items-center gap-1.5 ${
+              activeTab === 'expired'
+                ? 'bg-[#C6533A] text-white shadow-2xs'
+                : counts.expired > 0
+                ? 'bg-[#FCEBE5] text-[#C6533A] hover:bg-[#F9DDD3]'
+                : 'bg-[#F8F9F6] text-[#78847C] hover:text-[#174A36]'
+            }`}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>Vencidos</span>
+            <span className="font-mono text-[11px] font-bold">({counts.expired})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('soon')}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition min-h-[40px] flex items-center gap-1.5 ${
+              activeTab === 'soon'
+                ? 'bg-[#A66B16] text-white shadow-2xs'
+                : counts.soon > 0
+                ? 'bg-[#FFF3D9] text-[#A66B16] hover:bg-[#FBEAC4]'
+                : 'bg-[#F8F9F6] text-[#78847C] hover:text-[#174A36]'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Vencen pronto (0 a 7d)</span>
+            <span className="font-mono text-[11px] font-bold">({counts.soon})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('safe')}
+            className={`px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition min-h-[40px] flex items-center gap-1.5 ${
+              activeTab === 'safe'
+                ? 'bg-[#246B4D] text-white shadow-2xs'
+                : 'bg-[#F8F9F6] text-[#78847C] hover:text-[#174A36]'
+            }`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span>Sin urgencia (&gt;7d)</span>
+            <span className="font-mono text-[11px]">({counts.safe})</span>
+          </button>
+        </div>
       </div>
 
       {/* Batches List */}
       {filteredBatches.length === 0 ? (
-        <div className="p-12 text-center rounded-3xl bg-white border border-[#E7EBE5] space-y-2 shadow-xs">
-          <CheckCircle2 className="w-10 h-10 text-[#246B4D] mx-auto opacity-70" />
-          <h3 className="text-base font-bold text-[#174A36]">No hay lotes en esta categoría</h3>
+        <div className="p-10 text-center rounded-3xl bg-white border border-[#E7EBE5] space-y-2 shadow-xs">
+          <CalendarClock className="w-10 h-10 text-[#78847C] mx-auto opacity-40" />
+          <h3 className="text-base font-bold text-[#174A36]">
+            {searchTerm
+              ? 'No se encontraron lotes con esa búsqueda'
+              : activeTab === 'expired'
+              ? '¡Excelente! No tenés lotes vencidos'
+              : activeTab === 'soon'
+              ? 'No tenés productos que venzan en los próximos 7 días'
+              : 'No hay lotes en esta categoría'}
+          </h3>
           <p className="text-xs text-[#78847C]">
-            {searchTerm ? 'No hay coincidencias con tu búsqueda.' : 'No tenés productos con este rango de caducidad.'}
+            {activeTab === 'expired' || activeTab === 'soon'
+              ? 'Todo tu inventario está protegido.'
+              : 'Podés consultar otras categorías o buscar otro producto.'}
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filteredBatches.map(item => {
-            const days = item.daysRemaining;
-            const isExpired = days < 0;
-            const isUrgent = days >= 0 && days <= 2;
-            const borderLeft = isExpired 
-              ? 'border-l-4 border-l-[#78847C]' 
-              : isUrgent 
-              ? 'border-l-4 border-l-[#C6533A]' 
-              : 'border-l-4 border-l-[#A66B16]';
-
-            const statusInfo = getStatusLabel(item.status, item.daysRemaining);
-            const matchingProduct = productsWithBatches.find(p => p.id === item.productId);
+        <div className="space-y-2.5">
+          {filteredBatches.map(batch => {
+            const urgency = getUrgencyBadge(batch.daysRemaining);
+            const parentProduct = productsWithBatches.find(p => p.id === batch.product.id);
 
             return (
               <div
-                key={item.id}
-                className={`p-4 sm:p-5 rounded-2xl bg-white border border-[#E7EBE5] hover:border-[#246B4D]/30 transition shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${borderLeft}`}
+                key={batch.id}
+                onClick={() => {
+                  if (parentProduct) onSelectProduct(parentProduct);
+                }}
+                className="p-4 rounded-2xl sm:rounded-3xl bg-white border border-[#E7EBE5] hover:border-[#246B4D]/40 transition shadow-xs cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                role="button"
+                tabIndex={0}
               >
-                {/* Product & Batch Info */}
-                <div className="space-y-1.5 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm sm:text-base font-bold text-[#174A36]">
-                      {item.product.name}
+                {/* Product Name & Lot */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${urgency.colorClass}`}>
+                      {urgency.label}
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${statusInfo.badgeClass}`}>
-                      {statusInfo.label}
+                    <span className="text-xs text-[#78847C] truncate">
+                      {batch.product.category}
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 sm:gap-3 text-xs text-[#78847C] flex-wrap">
-                    <span className="text-[#246B4D] font-medium">{item.product.category}</span>
-                    <span>·</span>
-                    <span className="font-mono text-[#24372F]">
-                      {item.lotNumber ? `Lote: ${item.lotNumber}` : 'Sin código de lote'}
-                    </span>
-                    <span>·</span>
-                    <span className="font-mono font-bold text-[#174A36] tabular-nums">
-                      {item.quantity} {item.product.unit}
-                    </span>
-                    {item.product.barcode && (
-                      <>
-                        <span>·</span>
-                        <span className="font-mono flex items-center gap-1 text-[#78847C]">
-                          <Barcode className="w-3 h-3" />
-                          {item.product.barcode}
-                        </span>
-                      </>
+                  <h3 className="text-sm sm:text-base font-bold text-[#174A36] group-hover:text-[#246B4D] transition mt-1 truncate">
+                    {batch.product.name}
+                  </h3>
+
+                  <div className="flex items-center gap-2 text-xs text-[#78847C] mt-0.5">
+                    {batch.lotNumber && (
+                      <span>Lote: <strong className="font-mono text-[#24372F]">{batch.lotNumber}</strong></span>
                     )}
+                    {batch.lotNumber && <span className="text-[#E7EBE5]">·</span>}
+                    <span>Vence: <strong className="text-[#24372F]">{formatShortDate(batch.expirationDate)}</strong></span>
                   </div>
                 </div>
 
-                {/* Right side: Dates & Fast Stock Deduction */}
-                <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0">
+                {/* Stock & Quick Adjust */}
+                <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#E7EBE5]">
                   <div className="text-left sm:text-right">
-                    <span className="text-[11px] text-[#78847C] block font-mono">
-                      Vence: {item.expirationDate}
-                    </span>
-                    <span className="text-xs font-mono font-bold text-[#174A36] tabular-nums">
-                      {item.daysRemaining < 0
-                        ? `-${Math.abs(item.daysRemaining)} días`
-                        : item.daysRemaining === 0
-                        ? 'Hoy'
-                        : `${item.daysRemaining} días`}
-                    </span>
+                    <div className="text-sm sm:text-base font-bold font-mono text-[#174A36] tabular-nums">
+                      {batch.quantity} <span className="text-xs font-normal text-[#78847C]">{batch.product.unit}</span>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                     <button
-                      onClick={() => handleOpenAdjust(item, 'sell')}
-                      className="px-2.5 py-1.5 rounded-xl bg-[#EAF3EC] hover:bg-[#246B4D] hover:text-white text-xs text-[#246B4D] font-semibold transition flex items-center gap-1"
+                      type="button"
+                      onClick={() => handleOpenAdjust(batch, 'sell')}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#EAF3EC] hover:bg-[#246B4D] hover:text-white text-xs font-semibold text-[#246B4D] transition min-h-[38px] active:scale-95"
                       title="Registrar venta de este lote"
                     >
-                      <MinusCircle className="w-3.5 h-3.5" />
-                      <span>Venta</span>
+                      Venta
                     </button>
-
                     <button
-                      onClick={() => handleOpenAdjust(item, 'waste')}
-                      className="px-2.5 py-1.5 rounded-xl bg-[#FCEBE5] hover:bg-[#C6533A] hover:text-white text-xs text-[#C6533A] font-semibold transition flex items-center gap-1"
-                      title="Registrar merma o retiro"
+                      type="button"
+                      onClick={() => handleOpenAdjust(batch, 'waste')}
+                      className="px-2.5 py-1.5 rounded-xl bg-[#F8F9F6] hover:bg-[#FCEBE5] text-xs font-semibold text-[#78847C] hover:text-[#C6533A] transition min-h-[38px] active:scale-95"
+                      title="Registrar merma o descarte"
                     >
-                      <AlertOctagon className="w-3.5 h-3.5" />
-                      <span>Merma</span>
+                      Baja
                     </button>
-
-                    {matchingProduct && (
-                      <button
-                        onClick={() => onSelectProduct(matchingProduct)}
-                        className="p-1.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition"
-                        title="Ver ficha completa del producto"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -299,50 +334,43 @@ export const ExpirationsView: React.FC<ExpirationsViewProps> = ({
 
       {/* Quick Adjust Dialog */}
       {quickAdjustBatch && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="w-full max-w-sm rounded-3xl bg-white border border-[#E7EBE5] p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="w-full max-w-sm bg-white rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
             <h3 className="text-base font-bold text-[#174A36]">
-              {quickAdjustBatch.action === 'sell' ? 'Registrar Venta de Lote' : 'Registrar Merma'}
+              {quickAdjustBatch.action === 'sell' ? 'Registrar Venta' : 'Registrar Baja de Lote'}
             </h3>
             <p className="text-xs text-[#78847C]">
-              {quickAdjustBatch.batch.product.name} (Lote: {quickAdjustBatch.batch.lotNumber || 'S/N'}). Quedan {quickAdjustBatch.batch.quantity} {quickAdjustBatch.batch.product.unit}.
+              {quickAdjustBatch.batch.product.name} (Stock: {quickAdjustBatch.batch.quantity})
             </p>
 
             <div>
-              <label htmlFor="exp-adjust-quantity" className="block text-xs font-semibold text-[#174A36] mb-1.5">
-                Cantidad a descontar ({quickAdjustBatch.batch.product.unit}):
+              <label className="block text-xs font-semibold text-[#24372F] mb-1">
+                Cantidad a descontar
               </label>
               <input
-                id="exp-adjust-quantity"
                 type="number"
-                step="any"
                 min="1"
                 max={quickAdjustBatch.batch.quantity}
                 value={adjustAmount}
                 onChange={e => setAdjustAmount(e.target.value)}
-                className="w-full px-3.5 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-sm text-[#24372F] font-mono focus:outline-none focus:border-[#246B4D]"
-                autoFocus
+                className="w-full px-3.5 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-xl text-sm font-mono font-bold text-[#174A36] focus:outline-none focus:border-[#246B4D]"
               />
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2">
+            <div className="flex items-center gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setQuickAdjustBatch(null)}
-                className="px-4 py-2 text-xs font-semibold text-[#78847C] hover:text-[#174A36] rounded-xl"
+                className="flex-1 py-2.5 rounded-xl border border-[#E7EBE5] text-xs font-semibold text-[#78847C] hover:bg-[#F8F9F6]"
               >
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleConfirmAdjust}
-                className={`px-4 py-2 text-xs font-semibold text-white rounded-xl transition ${
-                  quickAdjustBatch.action === 'sell' 
-                    ? 'bg-[#246B4D] hover:bg-[#174A36]' 
-                    : 'bg-[#C6533A] hover:bg-[#a93f28]'
-                }`}
+                className="flex-1 py-2.5 rounded-xl bg-[#246B4D] hover:bg-[#174A36] text-white text-xs font-bold transition shadow-xs"
               >
-                Confirmar Descuento
+                Confirmar
               </button>
             </div>
           </div>

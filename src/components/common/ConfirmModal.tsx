@@ -25,9 +25,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
       <div 
-        className="w-full max-w-md rounded-3xl bg-white border border-[#E7EBE5] p-6 shadow-2xl animate-in zoom-in-95 duration-150"
+        className="w-full max-w-md max-h-[92vh] overflow-y-auto rounded-3xl bg-white border border-[#E7EBE5] p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-150"
         role="dialog"
         aria-modal="true"
       >
@@ -42,7 +42,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </div>
           <button
             onClick={onCancel}
-            className="p-1.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition"
+            className="p-2 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition min-w-[40px] min-h-[40px] flex items-center justify-center"
             aria-label="Cerrar modal"
           >
             <X className="w-5 h-5" />
@@ -53,18 +53,18 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           {message}
         </p>
 
-        <div className="mt-6 flex items-center justify-end gap-2.5">
+        <div className="mt-6 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2.5">
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2.5 text-xs font-semibold text-[#78847C] hover:text-[#174A36] bg-[#F8F9F6] hover:bg-[#E7EBE5] rounded-xl transition"
+            className="w-full sm:w-auto px-4 py-2.5 min-h-[44px] text-xs font-semibold text-[#78847C] hover:text-[#174A36] bg-[#F8F9F6] hover:bg-[#E7EBE5] rounded-xl transition flex items-center justify-center"
           >
             {cancelText}
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className={`px-4 py-2.5 text-xs font-semibold text-white rounded-xl transition shadow-xs ${
+            className={`w-full sm:w-auto px-5 py-2.5 min-h-[44px] text-xs font-semibold text-white rounded-xl transition shadow-xs flex items-center justify-center active:scale-95 ${
               isDestructive 
                 ? 'bg-[#C6533A] hover:bg-[#a93f28]' 
                 : 'bg-[#246B4D] hover:bg-[#174A36]'

@@ -2,22 +2,20 @@ import React, { useState, useMemo } from 'react';
 import { 
   Search, 
   Filter, 
-  ArrowUpDown, 
   Plus, 
   Package, 
-  Barcode, 
-  Calendar, 
-  Layers, 
-  Trash2, 
-  Edit3, 
-  Eye, 
-  LayoutGrid, 
-  List, 
-  PlusCircle, 
+  Camera,
+  FileSpreadsheet,
+  ChevronDown,
+  ChevronUp,
+  X,
   Sparkles,
-  Camera
+  MoreVertical,
+  PlusCircle,
+  Edit3,
+  Trash2
 } from 'lucide-react';
-import { ProductWithBatches, ProductCategory, Product, Batch } from '../../types';
+import { ProductWithBatches, Product, Batch } from '../../types';
 import { getStatusLabel, storageService } from '../../services/storage';
 import { firestoreSyncService } from '../../services/firestoreSync';
 import { useAuth } from '../../contexts/AuthContext';
@@ -33,6 +31,8 @@ interface ProductsViewProps {
   onEditProduct: (product: Product) => void;
   isDemoMode?: boolean;
   onOpenDemo?: () => void;
+  onOpenPromotion?: (product: ProductWithBatches, batch?: Batch) => void;
+  onOpenExcelImport?: () => void;
 }
 
 type SortOption = 'peps' | 'name_asc' | 'name_desc' | 'stock_desc' | 'stock_asc';
@@ -46,17 +46,22 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
   onEditProduct,
   isDemoMode = false,
   onOpenDemo,
+  onOpenExcelImport,
 }) => {
   const { userProfile } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<SortOption>('peps');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Modal states
   const [productToDelete, setProductToDelete] = useState<ProductWithBatches | null>(null);
   const [productForNewBatch, setProductForNewBatch] = useState<ProductWithBatches | null>(null);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+
+  // Active filter count
+  const activeFilterCount = (selectedCategory !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0) + (sortBy !== 'peps' ? 1 : 0);
 
   // Filter and sort products
   const filteredProducts = useMemo(() => {
@@ -120,33 +125,62 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     onRefresh();
   };
 
+  const clearAllFilters = () => {
+    setSelectedCategory('all');
+    setStatusFilter('all');
+    setSortBy('peps');
+    setSearchTerm('');
+  };
+
+  // Helper to format short date
+  const formatShortDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return dateStr;
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const m = months[parseInt(parts[1], 10) - 1] || parts[1];
+    return `${parseInt(parts[2], 10)} ${m} ${parts[0]}`;
+  };
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
-      {/* Title & Add Actions */}
+    <div className="space-y-6 animate-in fade-in duration-150">
+      {/* Title & Actions Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-[#78847C]">
-            CATÁLOGO GENERAL
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#174A36] tracking-tight mt-1">
-            Inventario de Productos
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#174A36] tracking-tight">
+            Productos
           </h1>
-          <p className="text-sm text-[#78847C] mt-0.5">
-            Control de productos, lotes y fechas de caducidad
+          <p className="text-xs sm:text-sm text-[#78847C] mt-0.5">
+            {productsWithBatches.length} {productsWithBatches.length === 1 ? 'artículo registrado' : 'artículos registrados'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 w-full sm:w-auto flex-wrap">
+          {onOpenExcelImport && (
+            <button
+              type="button"
+              onClick={onOpenExcelImport}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-2xl bg-white hover:bg-[#F8F9F6] text-[#246B4D] border border-[#E7EBE5] text-xs font-semibold transition active:scale-95 shadow-2xs whitespace-nowrap"
+              title="Importar productos y lotes desde Excel o CSV"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-[#246B4D]" />
+              <span>Importar Excel</span>
+            </button>
+          )}
+
           <button
+            type="button"
             onClick={onOpenScan}
-            className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-white hover:bg-[#F8F9F6] text-[#246B4D] border border-[#E7EBE5] text-xs font-semibold transition shadow-xs"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-2xl bg-white hover:bg-[#F8F9F6] text-[#246B4D] border border-[#E7EBE5] text-xs font-semibold transition active:scale-95 shadow-2xs whitespace-nowrap"
           >
             <Camera className="w-4 h-4" />
             <span>Escanear</span>
           </button>
+
           <button
+            type="button"
             onClick={onOpenManualAdd}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#246B4D] hover:bg-[#174A36] text-white text-xs font-semibold transition shadow-xs"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 min-h-[44px] rounded-2xl bg-[#246B4D] hover:bg-[#174A36] text-white text-xs font-bold transition shadow-xs active:scale-95 whitespace-nowrap"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>Nuevo Producto</span>
@@ -154,9 +188,9 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         </div>
       </div>
 
-      {/* Search & Filter Toolbar */}
-      <div className="p-4 rounded-3xl bg-white border border-[#E7EBE5] space-y-3 shadow-xs">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3">
+      {/* Search & Filter Bar */}
+      <div className="p-3.5 sm:p-4 rounded-3xl bg-white border border-[#E7EBE5] space-y-3 shadow-xs">
+        <div className="flex items-center gap-2.5">
           {/* Search Input */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-[#78847C] absolute left-3.5 top-3.5 pointer-events-none" />
@@ -164,107 +198,120 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Buscar por nombre, código de barras, lote..."
-              className="w-full pl-10 pr-4 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-xs sm:text-sm text-[#24372F] placeholder-[#78847C] focus:outline-none focus:border-[#246B4D] focus:bg-white transition"
+              placeholder="Buscar producto o código..."
+              className="w-full pl-10 pr-9 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-xs sm:text-sm text-[#24372F] placeholder-[#78847C] focus:outline-none focus:border-[#246B4D] focus:bg-white transition"
             />
             {searchTerm && (
               <button
+                type="button"
                 onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-3 text-xs text-[#78847C] hover:text-[#174A36]"
+                className="absolute right-3 top-2.5 text-[#78847C] hover:text-[#174A36] p-1"
+                aria-label="Limpiar búsqueda"
               >
-                Limpiar
+                <X className="w-4 h-4" />
               </button>
             )}
           </div>
 
-          {/* Category Dropdown */}
-          <div className="relative shrink-0 min-w-[180px]">
-            <select
-              value={selectedCategory}
-              onChange={e => setSelectedCategory(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-xs font-medium text-[#24372F] focus:outline-none focus:border-[#246B4D] focus:bg-white transition"
-            >
-              <option value="all">Todas las categorías</option>
-              {categories.map(cat => (
-                <option key={cat} value={cat}>
-                  {cat}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Status Dropdown */}
-          <div className="relative shrink-0 min-w-[170px]">
-            <select
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
-              className="w-full px-3.5 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-xs font-medium text-[#24372F] focus:outline-none focus:border-[#246B4D] focus:bg-white transition"
-            >
-              <option value="all">Todos los estados</option>
-              <option value="urgent">Urgentes (0 a 3 días)</option>
-              <option value="expired">Vencidos</option>
-              <option value="warning">Próximos (4 a 30 días)</option>
-              <option value="good">En fecha (&gt;30 días)</option>
-              <option value="no_batches">Sin lotes activos</option>
-            </select>
-          </div>
-
-          {/* Sort Dropdown */}
-          <div className="relative shrink-0 min-w-[180px]">
-            <select
-              value={sortBy}
-              onChange={e => setSortBy(e.target.value as SortOption)}
-              className="w-full px-3.5 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-xs font-medium text-[#24372F] focus:outline-none focus:border-[#246B4D] focus:bg-white transition"
-            >
-              <option value="peps">Próximo a vencer primero (PEPS)</option>
-              <option value="name_asc">Nombre (A - Z)</option>
-              <option value="name_desc">Nombre (Z - A)</option>
-              <option value="stock_desc">Mayor stock disponible</option>
-              <option value="stock_asc">Menor stock disponible</option>
-            </select>
-          </div>
-
-          {/* View mode toggle (desktop) */}
-          <div className="hidden sm:flex items-center gap-1 p-1 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl shrink-0">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-xl transition ${viewMode === 'grid' ? 'bg-white text-[#174A36] shadow-xs font-bold' : 'text-[#78847C] hover:text-[#174A36]'}`}
-              title="Vista cuadrícula"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={`p-2 rounded-xl transition ${viewMode === 'table' ? 'bg-white text-[#174A36] shadow-xs font-bold' : 'text-[#78847C] hover:text-[#174A36]'}`}
-              title="Vista tabla"
-            >
-              <List className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Toggle Secondary Filters Button */}
+          <button
+            type="button"
+            onClick={() => setShowFilters(prev => !prev)}
+            className={`flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-2xl border text-xs font-semibold transition shrink-0 ${
+              showFilters || activeFilterCount > 0
+                ? 'bg-[#EAF3EC] text-[#174A36] border-[#D5E8D7]'
+                : 'bg-white text-[#78847C] hover:text-[#174A36] border-[#E7EBE5]'
+            }`}
+          >
+            <Filter className="w-4 h-4 text-[#246B4D]" />
+            <span className="hidden sm:inline">Filtros</span>
+            {activeFilterCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-[#246B4D] text-white text-[10px] font-bold flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            )}
+            {showFilters ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
         </div>
 
-        {/* Results count text */}
-        <div className="flex items-center justify-between text-xs text-[#78847C] pt-1">
-          <span>Mostrando <strong>{filteredProducts.length}</strong> de {productsWithBatches.length} productos</span>
-          {(searchTerm || selectedCategory !== 'all' || statusFilter !== 'all') && (
-            <button
-              onClick={() => {
-                setSearchTerm('');
-                setSelectedCategory('all');
-                setStatusFilter('all');
-              }}
-              className="text-[#246B4D] hover:underline font-semibold"
-            >
-              Restablecer filtros
-            </button>
-          )}
-        </div>
+        {/* Collapsible Secondary Filters */}
+        {showFilters && (
+          <div className="pt-3 border-t border-[#E7EBE5] grid grid-cols-1 sm:grid-cols-3 gap-2.5 animate-in fade-in duration-150">
+            {/* Category Dropdown */}
+            <div>
+              <label className="block text-[11px] font-semibold text-[#78847C] mb-1">
+                Categoría
+              </label>
+              <select
+                value={selectedCategory}
+                onChange={e => setSelectedCategory(e.target.value)}
+                className="w-full px-3 py-2 bg-[#F8F9F6] border border-[#E7EBE5] rounded-xl text-xs font-medium text-[#24372F] focus:outline-none focus:border-[#246B4D]"
+              >
+                <option value="all">Todas las categorías</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status Dropdown */}
+            <div>
+              <label className="block text-[11px] font-semibold text-[#78847C] mb-1">
+                Estado
+              </label>
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value)}
+                className="w-full px-3 py-2 bg-[#F8F9F6] border border-[#E7EBE5] rounded-xl text-xs font-medium text-[#24372F] focus:outline-none focus:border-[#246B4D]"
+              >
+                <option value="all">Todos los estados</option>
+                <option value="urgent">Urgentes (0 a 3 días)</option>
+                <option value="expired">Vencidos</option>
+                <option value="warning">Próximos (4 a 30 días)</option>
+                <option value="good">En fecha (&gt;30 días)</option>
+                <option value="no_batches">Sin lotes activos</option>
+              </select>
+            </div>
+
+            {/* Sort Dropdown */}
+            <div>
+              <label className="block text-[11px] font-semibold text-[#78847C] mb-1">
+                Ordenar por
+              </label>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as SortOption)}
+                className="w-full px-3 py-2 bg-[#F8F9F6] border border-[#E7EBE5] rounded-xl text-xs font-medium text-[#24372F] focus:outline-none focus:border-[#246B4D]"
+              >
+                <option value="peps">Próximo a vencer primero</option>
+                <option value="name_asc">Nombre (A - Z)</option>
+                <option value="name_desc">Nombre (Z - A)</option>
+                <option value="stock_desc">Mayor stock</option>
+                <option value="stock_asc">Menor stock</option>
+              </select>
+            </div>
+
+            {activeFilterCount > 0 && (
+              <div className="sm:col-span-3 pt-1 text-right">
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  className="text-xs text-[#78847C] hover:text-[#C6533A] font-semibold"
+                >
+                  Restablecer filtros
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Product Content: Grid or Table */}
+      {/* Product Content: Clean, lightweight list */}
       {filteredProducts.length === 0 ? (
-        <div className="p-12 text-center rounded-3xl bg-white border border-[#E7EBE5] space-y-3 shadow-xs">
-          <Package className="w-12 h-12 text-[#78847C] mx-auto opacity-50" />
+        <div className="p-10 text-center rounded-3xl bg-white border border-[#E7EBE5] space-y-3 shadow-xs">
+          <Package className="w-12 h-12 text-[#78847C] mx-auto opacity-40" />
           <h3 className="text-base font-bold text-[#174A36]">
             {searchTerm || selectedCategory !== 'all' || statusFilter !== 'all'
               ? 'No se encontraron productos'
@@ -272,28 +319,36 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
           </h3>
           <p className="text-xs text-[#78847C] max-w-sm mx-auto">
             {searchTerm || selectedCategory !== 'all' || statusFilter !== 'all'
-              ? 'No hay productos que coincidan con los filtros seleccionados.'
-              : 'Comenzá cargando tu inventario o activá el modo demostración para explorar.'}
+              ? 'Probá ajustando la búsqueda o los filtros.'
+              : 'Comenzá cargando tu inventario o importá desde Excel.'}
           </p>
+
           <div className="pt-2 flex items-center justify-center gap-2.5 flex-wrap">
             <button
+              type="button"
               onClick={onOpenManualAdd}
-              className="px-4 py-2.5 bg-[#246B4D] hover:bg-[#174A36] text-white text-xs font-semibold rounded-2xl transition shadow-xs flex items-center gap-1.5"
+              className="px-5 py-2.5 min-h-[44px] bg-[#246B4D] hover:bg-[#174A36] text-white text-xs font-bold rounded-2xl transition shadow-xs flex items-center gap-2 active:scale-95"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Agregar producto</span>
             </button>
-            <button
-              onClick={onOpenScan}
-              className="px-4 py-2.5 bg-white hover:bg-[#F8F9F6] text-[#246B4D] border border-[#E7EBE5] text-xs font-semibold rounded-2xl transition shadow-xs flex items-center gap-1.5"
-            >
-              <Camera className="w-4 h-4" />
-              <span>Escanear código</span>
-            </button>
-            {!isDemoMode && onOpenDemo && (
+
+            {onOpenExcelImport && (
               <button
+                type="button"
+                onClick={onOpenExcelImport}
+                className="px-4 py-2.5 min-h-[44px] bg-white hover:bg-[#F8F9F6] text-[#246B4D] border border-[#E7EBE5] text-xs font-semibold rounded-2xl transition shadow-2xs flex items-center gap-2 active:scale-95"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-[#246B4D]" />
+                <span>Importar desde Excel</span>
+              </button>
+            )}
+
+            {!isDemoMode && onOpenDemo && !searchTerm && (
+              <button
+                type="button"
                 onClick={onOpenDemo}
-                className="px-4 py-2.5 bg-[#EAF3EC] hover:bg-[#D5E8D7] text-[#246B4D] border border-[#D5E8D7] text-xs font-semibold rounded-2xl transition shadow-xs flex items-center gap-1.5"
+                className="px-4 py-2.5 min-h-[44px] bg-[#EAF3EC] hover:bg-[#D5E8D7] text-[#246B4D] text-xs font-semibold rounded-2xl transition flex items-center gap-1.5 active:scale-95"
               >
                 <Sparkles className="w-4 h-4 text-[#246B4D]" />
                 <span>Probar demo</span>
@@ -301,199 +356,125 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
             )}
           </div>
         </div>
-      ) : viewMode === 'grid' ? (
-        /* GRID VIEW */
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      ) : (
+        /* Clean list: Each item strictly shows: Nombre, Cantidad, Próximo vencimiento, Estado visual */
+        <div className="space-y-2.5">
           {filteredProducts.map(product => {
             const hasBatches = product.batches.length > 0;
             const days = product.daysRemaining !== undefined ? product.daysRemaining : null;
             const statusInfo = product.status && days !== null ? getStatusLabel(product.status, days) : null;
+            const earliestDate = product.earliestBatch?.expirationDate;
+            const isMenuOpen = activeMenuId === product.id;
 
             return (
               <div
                 key={product.id}
-                className="p-5 rounded-3xl bg-white border border-[#E7EBE5] hover:border-[#246B4D]/30 transition shadow-xs flex flex-col justify-between group space-y-4"
+                onClick={() => onSelectProduct(product)}
+                className="p-4 sm:p-4.5 rounded-2xl sm:rounded-3xl bg-white border border-[#E7EBE5] hover:border-[#246B4D]/40 transition shadow-xs cursor-pointer flex items-center justify-between gap-3 group relative select-none"
+                role="button"
+                tabIndex={0}
               >
-                <div className="space-y-3">
-                  {/* Category and Barcode bar */}
-                  <div className="flex items-center justify-between text-xs text-[#78847C]">
-                    <span className="text-[#246B4D] font-semibold">{product.category}</span>
+                {/* 1. Nombre del producto & Categoría */}
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm sm:text-base font-bold text-[#174A36] group-hover:text-[#246B4D] transition truncate">
+                    {product.name}
+                  </h3>
+                  <div className="flex items-center gap-2 text-xs text-[#78847C] mt-0.5">
+                    <span className="truncate">{product.category}</span>
                     {product.barcode && (
-                      <span className="font-mono flex items-center gap-1 text-[#78847C]">
-                        <Barcode className="w-3.5 h-3.5" />
-                        {product.barcode}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Title & Quantity */}
-                  <div 
-                    onClick={() => onSelectProduct(product)}
-                    className="cursor-pointer"
-                  >
-                    <h3 className="text-base font-bold text-[#174A36] group-hover:text-[#246B4D] transition line-clamp-2">
-                      {product.name}
-                    </h3>
-
-                    <div className="mt-2 flex items-center gap-3 text-xs">
-                      <div className="text-[#24372F]">
-                        Stock: <span className="font-mono font-bold text-[#174A36] tabular-nums">{product.totalQuantity}</span> {product.unit}
-                      </div>
-                      <span className="text-[#E7EBE5]">·</span>
-                      <div className="text-[#78847C] flex items-center gap-1">
-                        <Layers className="w-3.5 h-3.5 text-[#246B4D]" />
-                        <span>{product.batches.length} lote(s)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Earliest Expiration Box */}
-                  <div className="p-3 rounded-2xl bg-[#F8F9F6] border border-[#E7EBE5]">
-                    <div className="text-[11px] text-[#78847C] mb-1 flex items-center justify-between">
-                      <span>Próximo Vencimiento (PEPS):</span>
-                      {hasBatches && (
-                        <span className="font-mono text-[#174A36] font-semibold">{product.earliestBatch?.expirationDate}</span>
-                      )}
-                    </div>
-                    {hasBatches && statusInfo ? (
-                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.badgeClass}`}>
-                        {statusInfo.label}
-                      </span>
-                    ) : (
-                      <span className="text-xs text-[#78847C] italic">Sin lotes registrados</span>
+                      <>
+                        <span className="text-[#E7EBE5]">·</span>
+                        <span className="font-mono text-[11px] truncate">{product.barcode}</span>
+                      </>
                     )}
                   </div>
                 </div>
 
-                {/* Card Actions Footer */}
-                <div className="pt-3 border-t border-[#E7EBE5] flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setProductForNewBatch(product)}
-                      className="px-2.5 py-1.5 rounded-xl bg-[#EAF3EC] hover:bg-[#246B4D] hover:text-white text-xs font-semibold text-[#246B4D] transition flex items-center gap-1"
-                      title="Agregar lote a este producto"
-                    >
-                      <PlusCircle className="w-3.5 h-3.5" />
-                      <span>+ Lote</span>
-                    </button>
-                    <button
-                      onClick={() => onSelectProduct(product)}
-                      className="px-2.5 py-1.5 rounded-xl bg-[#F8F9F6] hover:bg-[#E7EBE5] text-xs font-medium text-[#24372F] transition flex items-center gap-1"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-[#78847C]" />
-                      <span>Detalles</span>
-                    </button>
+                {/* 2. Cantidad disponible */}
+                <div className="text-right shrink-0 min-w-[70px] sm:min-w-[90px]">
+                  <div className="text-sm sm:text-base font-bold font-mono text-[#174A36] tabular-nums">
+                    {product.totalQuantity}
                   </div>
+                  <div className="text-[11px] text-[#78847C]">
+                    {product.unit}
+                  </div>
+                </div>
 
-                  <div className="flex items-center gap-1">
+                {/* 3. Próximo vencimiento */}
+                <div className="text-right shrink-0 min-w-[90px] sm:min-w-[120px] hidden xs:block">
+                  <div className="text-xs sm:text-sm font-semibold text-[#24372F]">
+                    {hasBatches && earliestDate ? formatShortDate(earliestDate) : 'Sin lotes'}
+                  </div>
+                  <div className="text-[11px] text-[#78847C]">
+                    {hasBatches ? 'Próximo vto' : 'Sin fecha'}
+                  </div>
+                </div>
+
+                {/* 4. Estado visual */}
+                <div className="shrink-0 flex items-center gap-2">
+                  {hasBatches && statusInfo ? (
+                    <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap ${statusInfo.badgeClass}`}>
+                      {statusInfo.label}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-[#F8F9F6] text-[#78847C]">
+                      Sin lotes
+                    </span>
+                  )}
+
+                  {/* Secondary 3-dots Menu for quick actions */}
+                  <div className="relative" onClick={e => e.stopPropagation()}>
                     <button
-                      onClick={() => onEditProduct(product)}
-                      className="p-1.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition"
-                      title="Editar producto"
+                      type="button"
+                      onClick={() => setActiveMenuId(isMenuOpen ? null : product.id)}
+                      className="p-2 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition min-h-[44px] min-w-[44px] flex items-center justify-center"
+                      aria-label="Más acciones"
                     >
-                      <Edit3 className="w-4 h-4" />
+                      <MoreVertical className="w-4 h-4" />
                     </button>
-                    <button
-                      onClick={() => setProductToDelete(product)}
-                      className="p-1.5 rounded-xl text-[#78847C] hover:text-[#C6533A] hover:bg-[#FCEBE5] transition"
-                      title="Eliminar producto"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+
+                    {isMenuOpen && (
+                      <div className="absolute right-0 top-11 z-20 w-44 bg-white rounded-2xl shadow-xl border border-[#E7EBE5] py-1.5 space-y-0.5 animate-in fade-in duration-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveMenuId(null);
+                            setProductForNewBatch(product);
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#246B4D] hover:bg-[#EAF3EC] flex items-center gap-2"
+                        >
+                          <PlusCircle className="w-4 h-4" />
+                          <span>Agregar lote</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveMenuId(null);
+                            onEditProduct(product);
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#24372F] hover:bg-[#F8F9F6] flex items-center gap-2"
+                        >
+                          <Edit3 className="w-4 h-4 text-[#78847C]" />
+                          <span>Editar producto</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveMenuId(null);
+                            setProductToDelete(product);
+                          }}
+                          className="w-full px-3.5 py-2 text-left text-xs font-semibold text-[#C6533A] hover:bg-[#FCEBE5] flex items-center gap-2"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Eliminar producto</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
             );
           })}
-        </div>
-      ) : (
-        /* TABLE VIEW */
-        <div className="rounded-3xl bg-white border border-[#E7EBE5] overflow-hidden shadow-xs">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[#F8F9F6] text-xs font-semibold text-[#78847C] border-b border-[#E7EBE5]">
-                <tr>
-                  <th className="py-3.5 px-5">Producto</th>
-                  <th className="py-3.5 px-4">Categoría</th>
-                  <th className="py-3.5 px-4">Código</th>
-                  <th className="py-3.5 px-4 text-right">Stock</th>
-                  <th className="py-3.5 px-4">Próx. Vencimiento</th>
-                  <th className="py-3.5 px-4">Estado</th>
-                  <th className="py-3.5 px-5 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E7EBE5] text-[#24372F]">
-                {filteredProducts.map(p => {
-                  const days = p.daysRemaining !== undefined ? p.daysRemaining : null;
-                  const statusInfo = p.status && days !== null ? getStatusLabel(p.status, days) : null;
-
-                  return (
-                    <tr key={p.id} className="hover:bg-[#F8F9F6] transition">
-                      <td className="py-3.5 px-5">
-                        <button
-                          onClick={() => onSelectProduct(p)}
-                          className="font-bold text-[#174A36] hover:text-[#246B4D] text-left transition"
-                        >
-                          {p.name}
-                        </button>
-                      </td>
-                      <td className="py-3.5 px-4 text-xs text-[#78847C]">{p.category}</td>
-                      <td className="py-3.5 px-4 text-xs font-mono text-[#78847C]">
-                        {p.barcode || '—'}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-[#174A36] tabular-nums">
-                        {p.totalQuantity} <span className="text-xs font-normal text-[#78847C] font-sans">{p.unit}</span>
-                      </td>
-                      <td className="py-3.5 px-4 font-mono text-xs text-[#24372F]">
-                        {p.earliestBatch?.expirationDate || '—'}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {statusInfo ? (
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.badgeClass}`}>
-                            {statusInfo.label}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-[#78847C]">Sin lotes</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-5 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => setProductForNewBatch(p)}
-                            className="p-1.5 rounded-xl text-[#246B4D] hover:bg-[#EAF3EC] transition"
-                            title="Agregar lote"
-                          >
-                            <PlusCircle className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => onSelectProduct(p)}
-                            className="p-1.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition"
-                            title="Ver detalles"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => onEditProduct(p)}
-                            className="p-1.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition"
-                            title="Editar"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setProductToDelete(p)}
-                            className="p-1.5 rounded-xl text-[#78847C] hover:text-[#C6533A] hover:bg-[#FCEBE5] transition"
-                            title="Eliminar"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
         </div>
       )}
 
@@ -508,7 +489,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
         onCancel={() => setProductToDelete(null)}
       />
 
-      {/* Add Batch directly from card modal */}
+      {/* Add Batch directly from row modal */}
       {productForNewBatch && (
         <BatchModal
           isOpen={!!productForNewBatch}

@@ -6,7 +6,11 @@ import {
   ExpirationStatus, 
   StoreSettings, 
   AppAlert, 
-  SalesSuggestion 
+  SalesSuggestion,
+  Promotion,
+  PromotionStatus,
+  PromotionType,
+  SmartPromotionOpportunity
 } from '../types';
 
 export const DEFAULT_SETTINGS: StoreSettings = {
@@ -440,6 +444,7 @@ const DEMO_KEYS = {
   BATCHES: 'venceya_demo_batches_v2',
   SETTINGS: 'venceya_demo_settings_v2',
   ALERTS: 'venceya_demo_alerts_v2',
+  PROMOTIONS: 'venceya_demo_promotions_v2',
   SNAPSHOT: 'venceya_demo_snapshot_v2',
 };
 
@@ -473,6 +478,7 @@ class StorageService {
         BATCHES: DEMO_KEYS.BATCHES,
         SETTINGS: DEMO_KEYS.SETTINGS,
         ALERTS: DEMO_KEYS.ALERTS,
+        PROMOTIONS: DEMO_KEYS.PROMOTIONS,
       };
     }
     const prefix = `venceya_store_${this.currentStoreId}`;
@@ -481,6 +487,7 @@ class StorageService {
       BATCHES: `${prefix}_batches`,
       SETTINGS: `${prefix}_settings`,
       ALERTS: `${prefix}_alerts`,
+      PROMOTIONS: `${prefix}_promotions`,
     };
   }
 
@@ -1100,11 +1107,60 @@ class StorageService {
     }
   }
 
+  /**
+   * Bulk imports products and batches, preserving existing inventory,
+   * avoiding duplicates, and isolating each batch by its own expiration date.
+   */
+  bulkImport(newProducts: Product[], newBatches: Batch[]): { productsCount: number; batchesCount: number } {
+    const existingProducts = this.getProducts();
+    const existingBatches = this.getBatches();
+
+    // 1. Merge products: update existing or append new
+    const productMap = new Map<string, Product>();
+    existingProducts.forEach(p => productMap.set(p.id, p));
+
+    newProducts.forEach(p => {
+      if (!productMap.has(p.id)) {
+        productMap.set(p.id, p);
+      } else {
+        // Keep existing product but update prices if newly imported values are present
+        const current = productMap.get(p.id)!;
+        productMap.set(p.id, {
+          ...current,
+          costPrice: p.costPrice ?? current.costPrice,
+          salePrice: p.salePrice ?? current.salePrice,
+          notes: p.notes || current.notes,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    });
+
+    // 2. Append new batches (each batch has distinct ID and preserves its expiration date)
+    const batchMap = new Map<string, Batch>();
+    existingBatches.forEach(b => batchMap.set(b.id, b));
+    newBatches.forEach(b => batchMap.set(b.id, b));
+
+    const updatedProducts = Array.from(productMap.values());
+    const updatedBatches = Array.from(batchMap.values());
+
+    const keys = this.getKeys();
+    localStorage.setItem(keys.PRODUCTS, JSON.stringify(updatedProducts));
+    localStorage.setItem(keys.BATCHES, JSON.stringify(updatedBatches));
+
+    this.recalculateAlerts();
+
+    return {
+      productsCount: newProducts.length,
+      batchesCount: newBatches.length,
+    };
+  }
+
   clearAllData(): void {
     const keys = this.getKeys();
     localStorage.setItem(keys.PRODUCTS, JSON.stringify([]));
     localStorage.setItem(keys.BATCHES, JSON.stringify([]));
     localStorage.setItem(keys.ALERTS, JSON.stringify([]));
+    localStorage.setItem(keys.PROMOTIONS, JSON.stringify([]));
   }
 
   setCloudData(products: Product[], batches: Batch[], settings?: StoreSettings): void {
@@ -1116,6 +1172,198 @@ class StorageService {
       localStorage.setItem(keys.SETTINGS, JSON.stringify(settings));
     }
     this.recalculateAlerts();
+  }
+
+  // --- PROMOTIONS MANAGEMENT & ENGINE ---
+  // INVARIANT: Creating, sharing or saving promotions strictly DOES NOT modify regular product prices or deduct batch inventory.
+
+  getPromotions(): Promotion[] {
+    if (!this.isBrowser) return [];
+    const keys = this.getKeys();
+    const data = localStorage.getItem(keys.PROMOTIONS);
+    if (!data) return [];
+    try {
+      const list: Promotion[] = JSON.parse(data);
+      return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } catch {
+      return [];
+    }
+  }
+
+  getPromotionById(id: string): Promotion | undefined {
+    return this.getPromotions().find(p => p.id === id);
+  }
+
+  savePromotion(promoData: Omit<Promotion, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }): Promotion {
+    const list = this.getPromotions();
+    const now = new Date().toISOString();
+    let saved: Promotion;
+
+    if (promoData.id) {
+      const index = list.findIndex(p => p.id === promoData.id);
+      if (index >= 0) {
+        saved = {
+          ...list[index],
+          ...promoData,
+          id: promoData.id,
+          updatedAt: now,
+        };
+        list[index] = saved;
+      } else {
+        saved = {
+          ...promoData,
+          id: promoData.id,
+          createdAt: now,
+          updatedAt: now,
+        };
+        list.unshift(saved);
+      }
+    } else {
+      const id = `promo_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      saved = {
+        ...promoData,
+        id,
+        createdAt: now,
+        updatedAt: now,
+      };
+      list.unshift(saved);
+    }
+
+    if (this.isBrowser) {
+      const keys = this.getKeys();
+      localStorage.setItem(keys.PROMOTIONS, JSON.stringify(list));
+    }
+    return saved;
+  }
+
+  updatePromotionStatus(id: string, status: PromotionStatus): void {
+    const list = this.getPromotions();
+    const index = list.findIndex(p => p.id === id);
+    if (index >= 0) {
+      list[index].status = status;
+      list[index].updatedAt = new Date().toISOString();
+      if (this.isBrowser) {
+        const keys = this.getKeys();
+        localStorage.setItem(keys.PROMOTIONS, JSON.stringify(list));
+      }
+    }
+  }
+
+  deletePromotion(id: string): void {
+    const list = this.getPromotions().filter(p => p.id !== id);
+    if (this.isBrowser) {
+      const keys = this.getKeys();
+      localStorage.setItem(keys.PROMOTIONS, JSON.stringify(list));
+    }
+  }
+
+  setCloudPromotions(promotions: Promotion[]): void {
+    if (!this.isBrowser || this.isDemoMode) return;
+    const keys = this.getKeys();
+    localStorage.setItem(keys.PROMOTIONS, JSON.stringify(promotions));
+  }
+
+  /**
+   * Smart promotion opportunity engine ("Motor inteligente de promociones para reducir mermas")
+   * Evaluates urgent batches to recommend strategic discounts or bundle models
+   * before goods are lost to expiration.
+   */
+  getSmartPromotionOpportunities(): SmartPromotionOpportunity[] {
+    const batches = this.getAllBatchesWithProduct();
+    const activeBatches = batches.filter(b => b.quantity > 0 && b.daysRemaining >= 0);
+
+    // Sort by days remaining (most urgent first), then highest stock
+    activeBatches.sort((a, b) => {
+      if (a.daysRemaining !== b.daysRemaining) return a.daysRemaining - b.daysRemaining;
+      return b.quantity - a.quantity;
+    });
+
+    const opportunities: SmartPromotionOpportunity[] = [];
+    const seenProductIds = new Set<string>();
+
+    for (const batch of activeBatches) {
+      // Prioritize batches <= 7 days or batches with large quantity <= 15 days
+      if (batch.daysRemaining > 7 && (batch.quantity < 8 || batch.daysRemaining > 15)) {
+        continue;
+      }
+
+      // Avoid repeating the same product unless different urgency tier
+      if (seenProductIds.has(batch.productId)) {
+        continue;
+      }
+      seenProductIds.add(batch.productId);
+
+      const regularPrice = batch.product.salePrice || 0;
+      const costPrice = batch.product.costPrice || batch.costPrice;
+
+      let suggestedType: PromotionType = 'discount';
+      let suggestedDiscountPercent = 20;
+      let reason = 'Vence en los próximos días.';
+      let urgency: 'critical' | 'high' | 'medium' = 'medium';
+
+      if (batch.daysRemaining <= 1) {
+        // Less than 24-48 hours
+        urgency = 'critical';
+        suggestedDiscountPercent = 40;
+        suggestedType = 'discount';
+        reason = batch.daysRemaining === 0 
+          ? '¡Vence HOY! Liquidación urgente al 40% OFF para rescatar costo.' 
+          : 'Vence mañana. Descuento del 40% OFF o 2x1 urgente para rotar antes del cierre.';
+      } else if (batch.daysRemaining <= 3) {
+        // 2 to 3 days
+        urgency = 'high';
+        suggestedDiscountPercent = 25;
+        suggestedType = 'discount';
+        reason = `Vence en ${batch.daysRemaining} días. Descuento sugerido del 25% para evitar pérdidas.`;
+      } else if (batch.daysRemaining <= 7) {
+        // 4 to 7 days
+        urgency = 'medium';
+        suggestedDiscountPercent = 15;
+        suggestedType = 'discount';
+        reason = `Vence en ${batch.daysRemaining} días. Promoción preventiva del 15% OFF para acelerar salida.`;
+      } else {
+        // 8 to 15 days with high volume
+        urgency = 'medium';
+        suggestedDiscountPercent = 10;
+        suggestedType = 'bulk_discount';
+        reason = `Stock acumulado (${batch.quantity} ${batch.product.unit}) con fecha cercana. Estimular compra por volumen.`;
+      }
+
+      const suggestedPromoPrice = regularPrice > 0 
+        ? Math.round(regularPrice * (1 - suggestedDiscountPercent / 100))
+        : 0;
+      const estimatedSaving = regularPrice > 0 ? regularPrice - suggestedPromoPrice : 0;
+
+      let profitMarginPercent: number | undefined = undefined;
+      if (costPrice && costPrice > 0 && suggestedPromoPrice > 0) {
+        profitMarginPercent = Math.round(((suggestedPromoPrice - costPrice) / suggestedPromoPrice) * 100);
+      }
+
+      opportunities.push({
+        productId: batch.productId,
+        productName: batch.product.name,
+        category: batch.product.category,
+        unit: batch.product.unit,
+        imageUrl: batch.product.imageUrl,
+        batchId: batch.id,
+        expirationDate: batch.expirationDate,
+        daysRemaining: batch.daysRemaining,
+        quantity: batch.quantity,
+        regularPrice,
+        costPrice,
+        suggestedType,
+        suggestedDiscountPercent,
+        suggestedPromoPrice,
+        estimatedSaving,
+        profitMarginPercent,
+        reason,
+        urgency,
+      });
+
+      if (opportunities.length >= 6) break;
+    }
+
+    return opportunities;
   }
 }
 

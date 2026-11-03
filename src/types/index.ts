@@ -38,6 +38,8 @@ export interface Product {
   category: ProductCategory;
   unit: ProductUnit;
   barcode?: string;
+  brand?: string;
+  imageUrl?: string;
   costPrice?: number;
   salePrice?: number;
   notes?: string;
@@ -111,4 +113,91 @@ export interface SalesSuggestion {
   }[];
 }
 
+export type PromotionType = 
+  | 'discount'                 // Direct discount percentage (10, 15, 20, 25, 30, 40, 50, custom 1-90%)
+  | '2x1'                      // 2x1 (Pay 1 get 2)
+  | '3x2'                      // 3x2 (Pay 2 get 3)
+  | 'second_unit_discount'     // 2nd unit with discount (e.g., 50% or 70% off)
+  | 'special_price'            // Direct custom unit promotional price
+  | 'combo'                    // Combined bundle with other inventory items
+  | 'bulk_discount';           // Tier quantity discount (take 3+, pay $X each)
+
+export type PromotionStatus = 'active' | 'draft' | 'ended';
+
+export interface PromotionComboItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  regularPrice: number;
+  unit: string;
+}
+
+export interface Promotion {
+  id: string;
+  storeId?: string;
+  title: string;
+  type: PromotionType;
+  status: PromotionStatus;
+
+  // Primary product & batch
+  productId: string;
+  productName: string;
+  productCategory?: string;
+  productBarcode?: string;
+  productImageUrl?: string;
+  unit: string;
+  batchId?: string;
+  batchExpirationDate?: string;
+  batchDaysRemaining?: number;
+  availableStock?: number;
+
+  // Financial calculations
+  regularPrice: number;
+  costPrice?: number;
+  discountPercentage?: number;
+  discountAmount?: number;
+  promoPrice: number; // Unit promo price, or total bundle price if combo
+  secondUnitDiscountPercentage?: number;
+  bulkMinQuantity?: number;
+  bulkPricePerUnit?: number;
+  comboItems?: PromotionComboItem[];
+
+  // Urgency & Smart Engine calculations
+  urgencyLevel?: 'critical' | 'high' | 'medium' | 'normal';
+  profitMarginPercent?: number;
+  isBelowCost?: boolean;
+  totalRecoverableRevenue?: number;
+
+  // Commercial copy & metadata
+  message: string;
+  storeName: string;
+  validUntilText?: string;
+  notes?: string;
+
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SmartPromotionOpportunity {
+  productId: string;
+  productName: string;
+  category: string;
+  unit: string;
+  imageUrl?: string;
+  batchId: string;
+  expirationDate: string;
+  daysRemaining: number;
+  quantity: number;
+  regularPrice: number;
+  costPrice?: number;
+  suggestedType: PromotionType;
+  suggestedDiscountPercent: number;
+  suggestedPromoPrice: number;
+  estimatedSaving: number;
+  profitMarginPercent?: number;
+  reason: string;
+  urgency: 'critical' | 'high' | 'medium';
+}
+
 export type ActiveTab = 'dashboard' | 'products' | 'expirations' | 'alerts' | 'suggestions' | 'results' | 'settings';
+

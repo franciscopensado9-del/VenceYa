@@ -159,15 +159,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Probar Demo / Modo Demo Widget */}
         {isDemoMode ? (
-          <div className="p-3.5 rounded-2xl bg-[#FFF3D9] border border-[#FBEAC4] space-y-2 text-left">
+          <div className="p-3 rounded-2xl bg-[#FFF3D9] border border-[#FBEAC4] space-y-1.5 text-left">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#A66B16]">
+              <span className="text-[11px] font-bold text-[#A66B16]">
                 Modo Demo Activo
               </span>
-              <span className="w-2 h-2 rounded-full bg-[#A66B16] animate-pulse" />
             </div>
             <p className="text-[11px] text-[#A66B16]/90 leading-tight">
-              Estás viendo 13 productos ficticios. Tus datos reales están a salvo.
+              Tus datos reales están protegidos.
             </p>
             {onExitDemo && (
               <button
@@ -176,7 +175,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onExitDemo();
                   if (onCloseMobile) onCloseMobile();
                 }}
-                className="w-full py-1.5 px-3 bg-white hover:bg-[#F8F9F6] border border-[#FBEAC4] text-[#A66B16] text-xs font-bold rounded-xl transition shadow-2xs"
+                className="w-full py-1.5 px-3 bg-white hover:bg-[#F8F9F6] border border-[#FBEAC4] text-[#A66B16] text-xs font-semibold rounded-xl transition shadow-2xs"
               >
                 Salir de demo
               </button>
@@ -190,35 +189,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onOpenDemo();
                 if (onCloseMobile) onCloseMobile();
               }}
-              className="w-full bg-[#EAF3EC] hover:bg-[#D5E8D7] text-[#246B4D] border border-[#D5E8D7] py-2.5 px-3 rounded-2xl font-semibold text-xs flex items-center justify-center gap-2 transition active:scale-[0.98] shadow-2xs"
+              className="w-full bg-[#F8F9F6] hover:bg-[#EAF3EC] text-[#246B4D] border border-[#E7EBE5] py-2 px-3 rounded-xl font-medium text-xs flex items-center justify-center gap-1.5 transition active:scale-[0.98]"
             >
               <Sparkles className="w-3.5 h-3.5 text-[#246B4D]" />
-              <span>Probar demo con ejemplos</span>
+              <span>Modo demo de prueba</span>
             </button>
           )
         )}
-
-        {/* Educational / Motivational Widget */}
-        <div className="p-4 rounded-2xl bg-[#F8F9F6] border border-[#E7EBE5] space-y-2">
-          <div className="w-7 h-7 rounded-xl bg-[#EAF3EC] text-[#246B4D] flex items-center justify-center">
-            <Sprout className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="text-xs font-bold text-[#174A36] leading-tight">
-              Un pequeño paso,
-            </div>
-            <div className="text-[11px] text-[#78847C] leading-snug">
-              menos productos perdidos.
-            </div>
-          </div>
-          <button
-            onClick={() => handleSelectTab('suggestions')}
-            className="text-[11px] font-semibold text-[#246B4D] hover:text-[#174A36] flex items-center gap-1 transition"
-          >
-            <span>Conocé cómo funciona</span>
-            <span>&gt;</span>
-          </button>
-        </div>
       </div>
 
       {/* Store & User Profile Footer */}

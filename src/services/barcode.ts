@@ -1,14 +1,19 @@
 import { ProductCategory } from '../types';
+import { parseGS1Barcode } from './dateOcr';
 
 export interface BarcodeLookupResult {
   found: boolean;
+  status: 'found' | 'not_found' | 'network_error' | 'partial';
   barcode: string;
   name?: string;
   brand?: string;
   category?: ProductCategory;
+  quantityPresentation?: string;
   imageUrl?: string;
   rawCategories?: string;
-  source: 'local' | 'openfoodfacts' | 'none';
+  source: 'local' | 'openfoodfacts' | 'gs1' | 'none';
+  gs1ExpiryDate?: string;
+  gs1LotNumber?: string;
 }
 
 /**
@@ -56,29 +61,42 @@ function mapToStoreCategory(tags: string[] = [], productName: string = ''): Prod
 
 /**
  * Searches Open Food Facts API for real product information
+ * Adheres strictly to OpenFoodFacts User-Agent and query guidelines
  */
 export async function lookupBarcodeInOpenFoodFacts(barcode: string): Promise<BarcodeLookupResult> {
   const cleanBarcode = barcode.trim();
   if (!cleanBarcode) {
-    return { found: false, barcode: cleanBarcode, source: 'none' };
+    return { found: false, status: 'not_found', barcode: cleanBarcode, source: 'none' };
   }
+
+  // 1. Check if barcode contains GS1 Application Identifiers for Expiration Date / Lot
+  const gs1Data = parseGS1Barcode(cleanBarcode);
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 6500); // 6.5s timeout
 
-    const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(cleanBarcode)}.json`;
+    const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(cleanBarcode)}.json?fields=product_name,product_name_es,brands,categories,categories_tags,quantity,image_front_small_url,image_front_url`;
+    
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
         'Accept': 'application/json',
+        'User-Agent': 'VenceYa - Web/App - Version 1.0 - www.venceya.com',
       },
     });
 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      return { found: false, barcode: cleanBarcode, source: 'none' };
+      return { 
+        found: false, 
+        status: 'not_found', 
+        barcode: cleanBarcode, 
+        source: 'none',
+        gs1ExpiryDate: gs1Data.expirationDate,
+        gs1LotNumber: gs1Data.lotNumber,
+      };
     }
 
     const data = await response.json();
@@ -87,28 +105,55 @@ export async function lookupBarcodeInOpenFoodFacts(barcode: string): Promise<Bar
       const p = data.product;
       const brand = p.brands || p.brand_owner || '';
       const name = p.product_name_es || p.product_name || p.generic_name_es || p.generic_name || '';
-      const fullName = brand && !name.toLowerCase().includes(brand.toLowerCase())
-        ? `${name} ${brand}`.trim()
-        : name.trim();
+      const quantityPres = p.quantity || undefined;
+      
+      let fullName = name.trim();
+      if (brand && !fullName.toLowerCase().includes(brand.toLowerCase())) {
+        fullName = `${fullName} ${brand}`.trim();
+      }
+      if (quantityPres && !fullName.toLowerCase().includes(quantityPres.toLowerCase())) {
+        fullName = `${fullName} ${quantityPres}`.trim();
+      }
 
       const categoriesTags = Array.isArray(p.categories_tags) ? p.categories_tags : [];
       const mappedCategory = mapToStoreCategory(categoriesTags, fullName);
+      const imageUrl = p.image_front_small_url || p.image_front_url || undefined;
+
+      const isPartial = !fullName;
 
       return {
-        found: true,
+        found: !isPartial,
+        status: isPartial ? 'partial' : 'found',
         barcode: cleanBarcode,
         name: fullName || undefined,
         brand: brand || undefined,
         category: mappedCategory,
-        imageUrl: p.image_front_small_url || p.image_front_url || undefined,
+        quantityPresentation: quantityPres,
+        imageUrl,
         rawCategories: p.categories || undefined,
         source: 'openfoodfacts',
+        gs1ExpiryDate: gs1Data.expirationDate,
+        gs1LotNumber: gs1Data.lotNumber,
       };
     }
 
-    return { found: false, barcode: cleanBarcode, source: 'none' };
-  } catch {
-    // Offline or network error
-    return { found: false, barcode: cleanBarcode, source: 'none' };
+    return { 
+      found: false, 
+      status: 'not_found', 
+      barcode: cleanBarcode, 
+      source: 'none',
+      gs1ExpiryDate: gs1Data.expirationDate,
+      gs1LotNumber: gs1Data.lotNumber,
+    };
+  } catch (err: unknown) {
+    // Network / offline error
+    return { 
+      found: false, 
+      status: 'network_error', 
+      barcode: cleanBarcode, 
+      source: 'none',
+      gs1ExpiryDate: gs1Data.expirationDate,
+      gs1LotNumber: gs1Data.lotNumber,
+    };
   }
 }

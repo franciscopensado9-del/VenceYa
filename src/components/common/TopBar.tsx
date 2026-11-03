@@ -58,11 +58,11 @@ export const TopBar: React.FC<TopBarProps> = ({
   return (
     <header className="sticky top-0 z-20 w-full bg-white border-b border-[#E7EBE5] h-16 flex items-center justify-between px-4 sm:px-8">
       {/* Mobile brand & hamburger */}
-      <div className="flex items-center gap-3 lg:hidden">
+      <div className="flex items-center gap-2.5 lg:hidden">
         <button
           type="button"
           onClick={onToggleMobileMenu}
-          className="p-2 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition"
+          className="p-2.5 rounded-xl text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label="Abrir menú"
         >
           <Menu className="w-5 h-5" />
@@ -130,13 +130,13 @@ export const TopBar: React.FC<TopBarProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('alerts')}
-          className="relative w-9 h-9 rounded-full border border-[#E7EBE5] flex items-center justify-center text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition"
+          className="relative w-10 h-10 rounded-full border border-[#E7EBE5] flex items-center justify-center text-[#78847C] hover:text-[#174A36] hover:bg-[#F8F9F6] transition shrink-0"
           title="Ver alertas"
           aria-label="Notificaciones"
         >
           <Bell className="w-4 h-4" />
           {unreadAlertsCount > 0 && (
-            <span className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${
+            <span className={`absolute top-2 right-2 w-2 h-2 rounded-full ${
               criticalAlertsCount > 0 ? 'bg-[#C6533A] animate-pulse' : 'bg-[#A66B16]'
             }`} />
           )}

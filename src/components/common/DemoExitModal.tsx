@@ -17,9 +17,9 @@ export const DemoExitModal: React.FC<DemoExitModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/45 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
       <div 
-        className="w-full max-w-md bg-white border border-[#E7EBE5] rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left"
+        className="w-full max-w-md max-h-[92vh] overflow-y-auto bg-white border border-[#E7EBE5] rounded-3xl p-5 sm:p-6 shadow-2xl animate-in zoom-in-95 duration-200 text-left"
         role="dialog"
         aria-modal="true"
       >
