@@ -38,6 +38,7 @@ import { PromotionModal } from './components/promotions/PromotionModal';
 import { SavedPromotionsModal } from './components/promotions/SavedPromotionsModal';
 import { ExcelImportModal } from './components/products/ExcelImportModal';
 import { Sprout, RotateCcw, LogOut, AlertTriangle, X } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 
 export default function App() {
   const { user, userProfile, loading: authLoading, isNewUser } = useAuth();
@@ -693,6 +694,9 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
   );
 }
