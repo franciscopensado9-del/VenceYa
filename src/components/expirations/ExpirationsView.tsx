@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { BatchWithProduct, ProductWithBatches } from '../../types';
 import { storageService } from '../../services/storage';
-import { firestoreSyncService } from '../../services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { soundService } from '../../services/sound';
 
@@ -95,7 +95,7 @@ export const ExpirationsView: React.FC<ExpirationsViewProps> = ({
     storageService.updateBatchQuantity(quickAdjustBatch.batch.id, -amount);
     if (userProfile?.storeId && !storageService.isDemoActive()) {
       firestoreSyncService.updateBatchQuantity(userProfile.storeId, quickAdjustBatch.batch.id, -amount)
-        .catch(err => console.warn('Adjust qty cloud err:', err));
+        .catch(reportSyncError);
     }
     soundService.playScanSuccess();
     setQuickAdjustBatch(null);

@@ -17,6 +17,7 @@ import {
 import { StoreSettings } from '../../types';
 import { storageService } from '../../services/storage';
 import { soundService } from '../../services/sound';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 import { ConfirmModal } from '../common/ConfirmModal';
 
@@ -25,6 +26,7 @@ interface SettingsViewProps {
   onUpdateSettings: (settings: StoreSettings) => void;
   onRefreshData: () => void;
   isDemoMode?: boolean;
+  storeId?: string;
   onOpenDemo?: () => void;
   onExitDemo?: () => void;
 }
@@ -34,17 +36,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateSettings,
   onRefreshData,
   isDemoMode = false,
+  storeId,
   onOpenDemo,
   onExitDemo,
 }) => {
   const [storeName, setStoreName] = useState(settings.storeName);
   const [businessType, setBusinessType] = useState(settings.businessType);
+  const [city, setCity] = useState(settings.city || '');
   const [soundAlerts, setSoundAlerts] = useState(settings.soundAlerts);
   const [thresholds, setThresholds] = useState(settings.alertThresholds);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Modals & File inputs
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
   const [showSeedConfirm, setShowSeedConfirm] = useState(false);
   const [importMessage, setImportMessage] = useState<{ text: string; isError: boolean } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -55,6 +60,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       ...settings,
       storeName: storeName.trim() || 'Mi Almacén',
       businessType: businessType.trim() || 'Almacén y Kiosco',
+      city: city.trim(),
       soundAlerts,
       alertThresholds: thresholds,
     };
@@ -93,12 +99,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const content = event.target?.result as string;
       if (content) {
         const result = storageService.importDataJson(content);
         if (result.success) {
-          setImportMessage({ text: result.message, isError: false });
+          let messageText = result.message;
+          // If logged in with storeId and not in demo mode, sync to cloud with bulkImportProductsAndBatches
+          if (storeId && !isDemoMode && result.products && result.batches) {
+            try {
+              const cloudRes = await firestoreSyncService.bulkImportProductsAndBatches(
+                storeId,
+                result.products,
+                result.batches
+              );
+              if (cloudRes.errors && cloudRes.errors.length > 0) {
+                messageText += ` (Aviso: ${cloudRes.errors.length} errores al guardar en la nube)`;
+              }
+            } catch (cloudErr) {
+              reportSyncError(cloudErr);
+              messageText += ' (No se pudo sincronizar con la nube)';
+            }
+          }
+
+          setImportMessage({ text: messageText, isError: false });
           soundService.playSuccessChime();
           onRefreshData();
         } else {
@@ -117,7 +141,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onRefreshData();
   };
 
-  const handleConfirmClearAll = () => {
+  const handleConfirmClearAll = async () => {
+    if (storeId && !isDemoMode) {
+      setIsClearingAll(true);
+      try {
+        await firestoreSyncService.clearStoreData(storeId);
+      } catch (err) {
+        setIsClearingAll(false);
+        setShowClearConfirm(false);
+        reportSyncError(err);
+        setImportMessage({ 
+          text: 'No se pudo vaciar la base de datos en la nube. Tus datos locales se conservaron.', 
+          isError: true 
+        });
+        return;
+      }
+      setIsClearingAll(false);
+    }
+
     storageService.clearAllData();
     setShowClearConfirm(false);
     onRefreshData();
@@ -178,6 +219,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               placeholder="Ej. Almacén, Kiosco, Dietética, Fiambrería"
               className="w-full px-4 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-sm text-[#24372F] placeholder-[#78847C]/60 focus:outline-none focus:border-[#246B4D] focus:bg-white transition"
             />
+          </div>
+
+          <div className="sm:col-span-2">
+            <label htmlFor="store-city" className="block text-xs font-semibold text-[#174A36] mb-1.5">
+              Ubicación / Ciudad
+            </label>
+            <input
+              id="store-city"
+              type="text"
+              value={city}
+              onChange={e => setCity(e.target.value)}
+              placeholder="Ej. Córdoba Capital, Rosario, Mar del Plata, Argentina"
+              className="w-full px-4 py-2.5 bg-[#F8F9F6] border border-[#E7EBE5] rounded-2xl text-sm text-[#24372F] placeholder-[#78847C]/60 focus:outline-none focus:border-[#246B4D] focus:bg-white transition"
+            />
+            <p className="text-[11px] text-[#78847C] mt-1">
+              Esta ubicación se muestra en el menú lateral y en los reportes de tu comercio.
+            </p>
           </div>
         </div>
 
@@ -478,8 +536,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         message="¿Estás completamente seguro de que querés borrar TODOS los productos y lotes? Esta acción eliminará permanentemente los datos guardados en este navegador."
         confirmText="Sí, vaciar base de datos"
         isDestructive={true}
+        isLoading={isClearingAll}
         onConfirm={handleConfirmClearAll}
-        onCancel={() => setShowClearConfirm(false)}
+        onCancel={() => !isClearingAll && setShowClearConfirm(false)}
       />
     </div>
   );

@@ -22,6 +22,62 @@ export type ExpirationStatus =
   | 'warning_30d'  // 8 to 30 days (Atención)
   | 'good';        // > 30 days (En fecha)
 
+export type RecommendationStatus = 
+  | 'pending'           // Pendiente
+  | 'in_review'         // En revisión
+  | 'reviewed'          // Revisado
+  | 'promotion_created' // Promoción creada
+  | 'resolved'          // Resuelto
+  | 'dismissed';        // Descartado
+
+export type ResolutionOptionType = 
+  | 'sold'              // Vendido: Se vendió antes de vencer
+  | 'discarded'         // Descartado: Se retiró del stock
+  | 'discount_applied'  // Descuento aplicado: Le aplicaste una promo
+  | 'other'             // Otro: Otra solución
+  | 'verified_ok';      // Verificado en góndola
+
+export type StockMovementType = 'sale' | 'discard' | 'adjustment' | 'other';
+
+export interface StockMovement {
+  id: string;
+  storeId: string;
+  userId?: string;
+  productId: string;
+  productName: string;
+  batchId?: string;
+  batchExpirationDate?: string;
+  type: StockMovementType;
+  quantity: number;
+  previousQuantity?: number;
+  newQuantity?: number;
+  unit?: string;
+  reason?: string;
+  notes?: string;
+  alertId?: string;
+  recommendationId?: string;
+  promotionId?: string;
+  createdAt: string; // ISO 8601
+}
+
+export interface ProductReviewRecord {
+  id: string;
+  storeId?: string;
+  userId?: string;
+  productId: string;
+  batchId?: string;
+  reviewedAt: string;
+  status: RecommendationStatus;
+  resolution?: ResolutionOptionType | string;
+  resolutionType?: ResolutionOptionType;
+  quantityResolved?: number;
+  notes?: string;
+  promotionId?: string;
+  batchExpirationDate?: string;
+  batchQuantityAtReview?: number;
+  stockMovementId?: string;
+}
+
 export interface Batch {
   id: string;
   productId: string;
@@ -30,6 +86,8 @@ export interface Batch {
   expirationDate: string; // YYYY-MM-DD
   costPrice?: number;
   createdAt: string;
+  lastReviewedAt?: string;
+  lastReviewedStatus?: RecommendationStatus;
 }
 
 export interface Product {
@@ -45,6 +103,12 @@ export interface Product {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+  lastReviewedAt?: string;
+  lastReviewedStatus?: RecommendationStatus;
+  lastReviewedNotes?: string;
+  lastReviewedBatchId?: string;
+  lastReviewedExpirationDate?: string;
+  lastReviewedQuantity?: number;
 }
 
 export interface BatchWithProduct extends Batch {
@@ -65,6 +129,8 @@ export interface StoreSettings {
   storeName: string;
   businessType: string;
   currencySymbol: string;
+  city?: string;
+  address?: string;
   alertThresholds: {
     today: boolean;
     days1: boolean;

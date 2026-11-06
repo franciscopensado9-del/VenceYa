@@ -12,7 +12,7 @@ import {
   PromotionType
 } from './types';
 import { storageService } from './services/storage';
-import { firestoreSyncService } from './services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from './services/firestoreSync';
 import { BarcodeLookupResult } from './services/barcode';
 import { useAuth } from './contexts/AuthContext';
 import { Sidebar } from './components/common/Sidebar';
@@ -37,7 +37,7 @@ import { ProductDetailModal } from './components/products/ProductDetailModal';
 import { PromotionModal } from './components/promotions/PromotionModal';
 import { SavedPromotionsModal } from './components/promotions/SavedPromotionsModal';
 import { ExcelImportModal } from './components/products/ExcelImportModal';
-import { Sprout, RotateCcw, LogOut } from 'lucide-react';
+import { Sprout, RotateCcw, LogOut, AlertTriangle, X } from 'lucide-react';
 
 export default function App() {
   const { user, userProfile, loading: authLoading, isNewUser } = useAuth();
@@ -76,6 +76,30 @@ export default function App() {
   const [promoInitialDiscount, setPromoInitialDiscount] = useState<number | undefined>(undefined);
   const [promoInitialType, setPromoInitialType] = useState<PromotionType | undefined>(undefined);
   const [isSavedPromotionsModalOpen, setIsSavedPromotionsModalOpen] = useState(false);
+
+  // Cloud Sync Error Banner State
+  const [showSyncErrorBanner, setShowSyncErrorBanner] = useState(false);
+  const syncErrorTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const handleSyncError = () => {
+      setShowSyncErrorBanner(true);
+      if (syncErrorTimerRef.current) {
+        clearTimeout(syncErrorTimerRef.current);
+      }
+      syncErrorTimerRef.current = setTimeout(() => {
+        setShowSyncErrorBanner(false);
+      }, 8000);
+    };
+
+    window.addEventListener('venceya:sync-error', handleSyncError);
+    return () => {
+      window.removeEventListener('venceya:sync-error', handleSyncError);
+      if (syncErrorTimerRef.current) {
+        clearTimeout(syncErrorTimerRef.current);
+      }
+    };
+  }, []);
 
   // Load and refresh all datasets
   const loadData = useCallback(() => {
@@ -159,8 +183,20 @@ export default function App() {
           loadData();
         }
       },
+      onReviews: (cloudReviews) => {
+        if (!storageService.isDemoActive()) {
+          storageService.setCloudReviews(cloudReviews);
+          loadData();
+        }
+      },
+      onStockMovements: (cloudMovements) => {
+        if (!storageService.isDemoActive()) {
+          storageService.setCloudStockMovements(cloudMovements);
+          loadData();
+        }
+      },
       onError: (err) => {
-        console.warn('Firestore subscription warning:', err);
+        reportSyncError(err);
       }
     });
 
@@ -171,6 +207,12 @@ export default function App() {
       unsubscribers.unsubAlerts();
       if (unsubscribers.unsubPromotions) {
         unsubscribers.unsubPromotions();
+      }
+      if (unsubscribers.unsubReviews) {
+        unsubscribers.unsubReviews();
+      }
+      if (unsubscribers.unsubStockMovements) {
+        unsubscribers.unsubStockMovements();
       }
     };
   }, [user, userProfile?.storeId, loadData]);
@@ -295,7 +337,7 @@ export default function App() {
   const criticalAlertsCount = alerts.filter(a => !a.isRead && !a.isDismissed && a.urgency === 'critical').length;
 
   return (
-    <div className="min-h-screen bg-[#F8F9F6] text-[#24372F] flex flex-col font-sans selection:bg-[#246B4D] selection:text-white">
+    <div className="min-h-screen bg-[#F7F8F5] text-[#26352F] flex flex-col font-sans selection:bg-[#246B4F] selection:text-white">
       {/* Desktop Persistent Fixed Left Sidebar & Mobile Drawer */}
       <Sidebar
         activeTab={activeTab}
@@ -309,10 +351,12 @@ export default function App() {
         isDemoMode={isDemoMode}
         onOpenDemo={handleOpenDemoModal}
         onExitDemo={handleRequestExitDemo}
+        onOpenExcelImport={() => setIsExcelImportOpen(true)}
+        onOpenSavedPromotions={() => setIsSavedPromotionsModalOpen(true)}
       />
 
       {/* Main Workspace Column */}
-      <div className="lg:pl-[270px] flex-1 flex flex-col min-w-0">
+      <div className="lg:pl-[272px] flex-1 flex flex-col min-w-0">
         {/* Top Bar Navigation */}
         <TopBar
           onToggleMobileMenu={() => setIsMobileSidebarOpen(true)}
@@ -349,7 +393,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleRequestExitDemo}
-                className="px-3 py-1.5 rounded-xl bg-[#246B4D] hover:bg-[#174A36] text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs"
+                className="px-3 py-1.5 rounded-xl bg-[#246B4F] hover:bg-[#1C553E] text-white text-xs font-semibold transition flex items-center gap-1.5 shadow-xs"
                 title="Salir y volver a mis datos reales"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -361,23 +405,47 @@ export default function App() {
 
         {/* Guest Mode Notice banner if exploring demo without login */}
         {isGuest && !user && !isDemoMode && (
-          <div className="bg-[#EAF3EC] border-b border-[#D5E8D7] px-4 sm:px-8 py-2.5 flex items-center justify-between text-xs text-[#174A36] font-medium">
+          <div className="bg-[#EAF3EC] border-b border-[#D5E8D7] px-4 sm:px-8 py-2.5 flex items-center justify-between text-xs text-[#173F35] font-medium">
             <div className="flex items-center gap-2">
-              <span className="font-bold px-2 py-0.5 rounded-full bg-white text-[#246B4D] border border-[#D5E8D7]">Modo Local</span>
+              <span className="font-bold px-2 py-0.5 rounded-full bg-white text-[#246B4F] border border-[#D5E8D7]">Modo Local</span>
               <span>Iniciá sesión o registrate para guardar y sincronizar tu comercio en la nube de Firebase.</span>
             </div>
             <button
               type="button"
               onClick={() => setIsGuest(false)}
-              className="px-3 py-1 bg-[#246B4D] hover:bg-[#174A36] text-white font-semibold rounded-xl text-xs transition shrink-0 ml-3 shadow-2xs"
+              className="px-3 py-1 bg-[#246B4F] hover:bg-[#1C553E] text-white font-semibold rounded-xl text-xs transition shrink-0 ml-3 shadow-2xs"
             >
               Iniciar sesión
             </button>
           </div>
         )}
 
-        {/* Viewport Content */}
-        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-8 py-6 sm:py-8 pb-28 lg:pb-12">
+        {/* Cloud Sync Failure Alert Banner */}
+        {showSyncErrorBanner && (
+          <div className="bg-[#FCEBE5] border-b border-[#F5C2B6] px-4 sm:px-8 py-3 flex items-center justify-between text-xs text-[#C6533A] font-medium transition-all animate-in fade-in">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-[#C6533A]" />
+              <span>No se pudo sincronizar con la nube. Tus cambios están guardados en este dispositivo, pero podrían perderse. Revisá tu conexión e intentá de nuevo.</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowSyncErrorBanner(false);
+                if (syncErrorTimerRef.current) {
+                  clearTimeout(syncErrorTimerRef.current);
+                }
+              }}
+              className="p-1 rounded-lg hover:bg-[#F5C2B6]/40 text-[#C6533A] transition shrink-0 ml-3"
+              title="Cerrar aviso"
+              aria-label="Cerrar aviso"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Viewport Content - Centered 1070px Max Width */}
+        <main className="flex-1 w-full max-w-[1070px] mx-auto px-6 sm:px-8 py-8 sm:py-10 pb-28 lg:pb-14">
           {activeTab === 'dashboard' && (
             <DashboardView
               productsWithBatches={productsWithBatches}
@@ -431,7 +499,7 @@ export default function App() {
               onUpdateSettings={s => {
                 if (userProfile?.storeId && !isDemoMode) {
                   firestoreSyncService.updateStoreSettings(userProfile.storeId, s)
-                    .catch(err => console.warn('Cloud update settings err:', err));
+                    .catch(reportSyncError);
                 }
                 storageService.saveSettings(s);
                 loadData();
@@ -461,10 +529,11 @@ export default function App() {
           {activeTab === 'settings' && (
             <SettingsView
               settings={settings}
+              storeId={userProfile?.storeId}
               onUpdateSettings={s => {
                 if (userProfile?.storeId && !isDemoMode) {
                   firestoreSyncService.updateStoreSettings(userProfile.storeId, s)
-                    .catch(err => console.warn('Cloud update settings err:', err));
+                    .catch(reportSyncError);
                 }
                 storageService.saveSettings(s);
                 loadData();
@@ -487,6 +556,9 @@ export default function App() {
         onOpenDemo={handleOpenDemoModal}
         onExitDemo={handleRequestExitDemo}
         onOpenExcelImport={() => setIsExcelImportOpen(true)}
+        onOpenSavedPromotions={() => setIsSavedPromotionsModalOpen(true)}
+        onOpenManualAdd={handleOpenManualAdd}
+        onOpenScan={handleOpenScan}
       />
 
       {/* Non-intrusive Offline Toast */}
@@ -563,7 +635,7 @@ export default function App() {
           onDeleteProduct={() => {
             if (userProfile?.storeId && !isDemoMode) {
               firestoreSyncService.deleteProduct(userProfile.storeId, selectedProductForDetail.id)
-                .catch(err => console.warn('Cloud delete product err:', err));
+                .catch(reportSyncError);
             }
             storageService.deleteProduct(selectedProductForDetail.id);
             setSelectedProductForDetail(null);

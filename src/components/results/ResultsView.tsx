@@ -12,6 +12,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { ProductWithBatches, BatchWithProduct, StoreSettings } from '../../types';
+import { storageService } from '../../services/storage';
 
 interface ResultsViewProps {
   productsWithBatches: ProductWithBatches[];
@@ -24,6 +25,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
   batchesWithProduct,
   settings,
 }) => {
+  const stockMovements = storageService.getStockMovements();
   // Real calculations
   const totalStockUnits = productsWithBatches.reduce((acc, p) => acc + p.totalQuantity, 0);
   const activeBatches = batchesWithProduct.filter(b => b.quantity > 0);
@@ -162,6 +164,97 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
             );
           })}
         </div>
+      </div>
+
+      {/* Historial Centralizado de Movimientos de Stock */}
+      <div className="p-6 rounded-3xl bg-white border border-[#E7EBE5] shadow-xs space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-[#174A36] flex items-center gap-2">
+              <Layers className="w-4 h-4 text-[#246B4D]" />
+              <span>Historial de Movimientos de Stock</span>
+            </h2>
+            <p className="text-xs text-[#78847C] mt-0.5">
+              Registro inmutable de ventas anticipadas, descartes y mermas
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="px-3 py-1 rounded-full bg-[#EAF5ED] text-[#246B4D] font-bold">
+              {stockMovements.filter(m => m.type === 'sale').reduce((acc, m) => acc + m.quantity, 0)} vendidas
+            </span>
+            <span className="px-3 py-1 rounded-full bg-[#FDF0EB] text-[#D95D39] font-bold">
+              {stockMovements.filter(m => m.type === 'discard').reduce((acc, m) => acc + m.quantity, 0)} mermas
+            </span>
+          </div>
+        </div>
+
+        {stockMovements.length > 0 ? (
+          <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-1">
+            {stockMovements.map((mov) => {
+              const isSale = mov.type === 'sale';
+              const isDiscard = mov.type === 'discard';
+
+              return (
+                <div
+                  key={mov.id}
+                  className="p-3.5 rounded-2xl bg-[#FBFDFB] border border-[#EAEBE8] hover:border-[#DCE0D9] transition flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className={`px-2.5 py-1 rounded-xl text-[11px] font-bold shrink-0 mt-0.5 ${
+                      isSale 
+                        ? 'bg-[#EAF5ED] text-[#246B4F] border border-[#C5E1CF]' 
+                        : isDiscard 
+                        ? 'bg-[#FDF0EB] text-[#D95D39] border border-[#FADBD0]' 
+                        : 'bg-[#F4F6F3] text-[#5C6861] border border-[#EAEBE8]'
+                    }`}>
+                      {isSale ? 'Venta' : isDiscard ? 'Merma / Descarte' : 'Ajuste'}
+                    </span>
+
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="text-xs sm:text-sm font-bold text-[#173F35] truncate">
+                        {mov.productName}
+                      </div>
+                      <div className="text-[11px] text-[#7A8580] flex items-center gap-2 flex-wrap">
+                        {mov.batchExpirationDate && (
+                          <span>Vence: {mov.batchExpirationDate}</span>
+                        )}
+                        {mov.reason && (
+                          <>
+                            <span className="text-[#DCE0D9]">·</span>
+                            <span>{mov.reason}</span>
+                          </>
+                        )}
+                        <span className="text-[#DCE0D9]">·</span>
+                        <span>{new Date(mov.createdAt).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-black font-mono text-[#173F35]">
+                      {isSale ? '-' : isDiscard ? '-' : ''}{mov.quantity} {mov.unit || 'u.'}
+                    </div>
+                    {mov.newQuantity !== undefined && (
+                      <div className="text-[10px] text-[#7A8580]">
+                        Quedan: {mov.newQuantity} u.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-8 text-center rounded-2xl bg-[#F9FAF8] border border-dashed border-[#DCE0D9] space-y-1">
+            <p className="text-xs font-semibold text-[#5C6861]">
+              Aún no hay movimientos de inventario registrados
+            </p>
+            <p className="text-[11px] text-[#7A8580]">
+              Cuando marques una recomendación como «Listo» o registres ventas/descartes, aparecerán aquí.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { ProductWithBatches, Product, Batch } from '../../types';
 import { getStatusLabel, storageService } from '../../services/storage';
-import { firestoreSyncService } from '../../services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { BatchModal } from './BatchModal';
@@ -119,7 +119,7 @@ export const ProductsView: React.FC<ProductsViewProps> = ({
     storageService.deleteProduct(prodId);
     if (userProfile?.storeId && !storageService.isDemoActive()) {
       firestoreSyncService.deleteProduct(userProfile.storeId, prodId)
-        .catch(err => console.warn('Product cloud delete err:', err));
+        .catch(reportSyncError);
     }
     setProductToDelete(null);
     onRefresh();

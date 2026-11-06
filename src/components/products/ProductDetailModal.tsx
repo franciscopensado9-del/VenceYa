@@ -19,7 +19,7 @@ import { ProductWithBatches, Batch } from '../../types';
 import { storageService, calculateDaysRemaining, getExpirationStatus, getStatusLabel } from '../../services/storage';
 import { soundService } from '../../services/sound';
 import { useAuth } from '../../contexts/AuthContext';
-import { firestoreSyncService } from '../../services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 import { BatchModal } from './BatchModal';
 import { ConfirmModal } from '../common/ConfirmModal';
 
@@ -67,7 +67,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     if (!batchToDelete) return;
     storageService.deleteBatch(batchToDelete.id);
     if (userProfile?.storeId && !storageService.isDemoActive()) {
-      firestoreSyncService.deleteBatch(userProfile.storeId, batchToDelete.id).catch(err => console.warn('Delete batch cloud err:', err));
+      firestoreSyncService.deleteBatch(userProfile.storeId, batchToDelete.id).catch(reportSyncError);
     }
     setBatchToDelete(null);
     onRefresh();
@@ -76,7 +76,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const handleQuickStep = (batch: Batch, delta: number) => {
     storageService.updateBatchQuantity(batch.id, delta);
     if (userProfile?.storeId && !storageService.isDemoActive()) {
-      firestoreSyncService.updateBatchQuantity(userProfile.storeId, batch.id, delta).catch(err => console.warn('Update qty cloud err:', err));
+      firestoreSyncService.updateBatchQuantity(userProfile.storeId, batch.id, delta).catch(reportSyncError);
     }
     soundService.playScanSuccess();
     onRefresh();
@@ -92,13 +92,85 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     const amount = Number(adjustAmount);
     if (isNaN(amount) || amount <= 0) return;
 
-    storageService.updateBatchQuantity(quickAdjustBatch.batch.id, -amount);
+    const movementType = quickAdjustBatch.action === 'sell' ? 'sale' : 'discard';
+    const reason = quickAdjustBatch.action === 'sell' 
+      ? 'Venta registrada desde detalle de producto' 
+      : 'Descarte/Merma registrado desde detalle de producto';
+
+    const { movement, updatedBatch } = storageService.applyStockMovementTransaction({
+      movement: {
+        storeId: userProfile?.storeId || 'default',
+        userId: userProfile?.id,
+        productId: productWithBatches.id,
+        productName: productWithBatches.name,
+        batchId: quickAdjustBatch.batch.id,
+        batchExpirationDate: quickAdjustBatch.batch.expirationDate,
+        type: movementType,
+        quantity: amount,
+        previousQuantity: quickAdjustBatch.batch.quantity,
+        newQuantity: Math.max(0, quickAdjustBatch.batch.quantity - amount),
+        unit: productWithBatches.unit,
+        reason,
+      },
+      deductStock: true,
+    });
+
     if (userProfile?.storeId && !storageService.isDemoActive()) {
-      firestoreSyncService.updateBatchQuantity(userProfile.storeId, quickAdjustBatch.batch.id, -amount).catch(err => console.warn('Adjust qty cloud err:', err));
+      firestoreSyncService.recordStockMovement(userProfile.storeId, movement).catch(reportSyncError);
+      if (updatedBatch) {
+        firestoreSyncService.updateBatchQuantity(userProfile.storeId, quickAdjustBatch.batch.id, -amount).catch(reportSyncError);
+      }
     }
     soundService.playScanSuccess();
     setQuickAdjustBatch(null);
     onRefresh();
+  };
+
+  // Review confirmation states
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewSuccessMsg, setReviewSuccessMsg] = useState<string | null>(null);
+  const [reviewNotes, setReviewNotes] = useState<string>('');
+  const [showNotesInput, setShowNotesInput] = useState(false);
+
+  // Check if product or its earliest batch has an existing review
+  const existingReview = storageService.getReviewForProductBatch(
+    productWithBatches.id,
+    productWithBatches.earliestBatch?.id,
+    productWithBatches.earliestBatch?.expirationDate
+  );
+
+  const handleConfirmReview = async (resolution: 'verified_ok' | 'waste_discarded' | 'stock_adjusted' = 'verified_ok') => {
+    setIsSubmittingReview(true);
+    try {
+      const earliest = productWithBatches.earliestBatch;
+      const reviewRecord = storageService.recordProductReview({
+        productId: productWithBatches.id,
+        batchId: earliest?.id,
+        status: 'reviewed',
+        resolution,
+        notes: reviewNotes.trim() || (resolution === 'verified_ok' ? 'Lote verificado en góndola y en orden' : 'Revisión confirmada'),
+        batchExpirationDate: earliest?.expirationDate,
+        batchQuantityAtReview: earliest?.quantity || productWithBatches.totalQuantity,
+        storeId: userProfile?.storeId,
+      });
+
+      if (userProfile?.storeId && !storageService.isDemoActive()) {
+        await firestoreSyncService.recordProductReview(userProfile.storeId, reviewRecord);
+      }
+
+      soundService.playScanSuccess();
+      setReviewSuccessMsg('¡Revisión confirmada! El producto fue verificado y la acción se actualizó.');
+      onRefresh();
+
+      setTimeout(() => {
+        setReviewSuccessMsg(null);
+      }, 2500);
+    } catch (err) {
+      console.error('Error confirming product review:', err);
+      reportSyncError(err);
+    } finally {
+      setIsSubmittingReview(false);
+    }
   };
 
   return (
@@ -166,6 +238,81 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
           {/* Modal Content */}
           <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6">
+            {/* Panel de Revisión de Producto y Estado Recomendado */}
+            {productWithBatches.daysRemaining !== undefined && productWithBatches.daysRemaining <= 7 && (
+              <div className={`p-4 sm:p-5 rounded-3xl border transition-all ${
+                existingReview?.status === 'reviewed' || existingReview?.status === 'resolved' || existingReview?.status === 'promotion_created'
+                  ? 'bg-[#EAF3EC] border-[#D5E8D7]'
+                  : 'bg-[#FFF9F2] border-[#FCE6D2]'
+              }`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#173F35]">
+                        Control de Revisión
+                      </span>
+                      <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                        existingReview?.status === 'reviewed' || existingReview?.status === 'resolved'
+                          ? 'bg-[#246B4F] text-white'
+                          : existingReview?.status === 'promotion_created'
+                          ? 'bg-[#173F35] text-white'
+                          : 'bg-[#D95D39] text-white'
+                      }`}>
+                        {existingReview?.status === 'reviewed' ? '✓ Revisado' : existingReview?.status === 'promotion_created' ? '🏷️ Promo Creada' : '• Pendiente de revisión'}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-[#5C6861]">
+                      {existingReview?.status === 'reviewed'
+                        ? `Revisado el ${new Date(existingReview.reviewedAt).toLocaleDateString('es-AR')}. ${existingReview.notes || 'Todo en orden.'}`
+                        : existingReview?.status === 'promotion_created'
+                        ? `Cuenta con promoción activa creada para rotar este lote.`
+                        : `Lote prioritario vence el ${productWithBatches.earliestBatch?.expirationDate} (${productWithBatches.daysRemaining} días restantes). Requiere verificar góndola.`}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      disabled={isSubmittingReview}
+                      onClick={() => handleConfirmReview('verified_ok')}
+                      className="px-4 py-2 bg-[#246B4F] hover:bg-[#1C553E] disabled:opacity-50 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs active:scale-95"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{existingReview?.status === 'reviewed' ? 'Actualizar revisión' : 'Confirmar revisión'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowNotesInput(!showNotesInput)}
+                      className="px-3 py-2 bg-white hover:bg-[#F8F9F6] text-[#5C6861] border border-[#EAEBE8] rounded-xl text-xs font-semibold transition"
+                    >
+                      {showNotesInput ? 'Ocultar notas' : 'Agregar nota'}
+                    </button>
+                  </div>
+                </div>
+
+                {showNotesInput && (
+                  <div className="mt-3 pt-3 border-t border-[#EAEBE8]/80">
+                    <input
+                      type="text"
+                      placeholder="Escribí una nota (ej. 'Lote verificado en góndola', 'Se adelantó al frente', etc.)..."
+                      value={reviewNotes}
+                      onChange={e => setReviewNotes(e.target.value)}
+                      className="w-full px-3.5 py-2 text-xs bg-white border border-[#DCE0D9] rounded-xl text-[#173F35] focus:outline-none focus:border-[#246B4F]"
+                    />
+                  </div>
+                )}
+
+                {reviewSuccessMsg && (
+                  <div className="mt-2 text-xs font-bold text-[#246B4F] flex items-center gap-1 animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-[#246B4F]" />
+                    <span>{reviewSuccessMsg}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Quick KPI Strip */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-4 rounded-2xl bg-[#F8F9F6] border border-[#E7EBE5]">
@@ -380,7 +527,20 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <span>Eliminar producto completo</span>
             </button>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-2 self-end sm:self-auto w-full sm:w-auto justify-end flex-wrap">
+              {productWithBatches.daysRemaining !== undefined && productWithBatches.daysRemaining <= 7 && (
+                <button
+                  type="button"
+                  disabled={isSubmittingReview}
+                  onClick={() => handleConfirmReview('verified_ok')}
+                  className="px-4 py-2.5 text-xs font-bold text-[#246B4F] bg-[#EAF3EC] hover:bg-[#D5E8D7] rounded-2xl transition flex items-center gap-1.5 active:scale-95"
+                  title="Confirmar revisión de este producto"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Confirmar Revisión</span>
+                </button>
+              )}
+
               {onOpenPromotion && (
                 <button
                   type="button"

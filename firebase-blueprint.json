@@ -85,6 +85,43 @@
         "createdAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "storeId", "productId", "batchId", "productName", "expirationDate"]
+    },
+    "StockMovement": {
+      "title": "StockMovement",
+      "description": "Inventory movement audit log record for sales, discards, and adjustments",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "batchId": { "type": "string", "maxLength": 128 },
+        "batchExpirationDate": { "type": "string", "maxLength": 20 },
+        "type": { "type": "string", "maxLength": 30 },
+        "quantity": { "type": "number" },
+        "previousQuantity": { "type": "number" },
+        "newQuantity": { "type": "number" },
+        "reason": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "storeId", "productId", "type", "quantity", "createdAt"]
+    },
+    "ProductReview": {
+      "title": "ProductReview",
+      "description": "Product batch review and recommendation resolution audit record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "batchId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "maxLength": 30 },
+        "resolution": { "type": "string", "maxLength": 50 },
+        "notes": { "type": "string", "maxLength": 500 },
+        "reviewedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "productId", "status", "reviewedAt"]
     }
   },
   "firestore": {
@@ -107,6 +144,14 @@
     "/stores/{storeId}/alerts/{alertId}": {
       "schema": { "$ref": "#/entities/Alert" },
       "description": "Active expiration alerts generated for the store"
+    },
+    "/stores/{storeId}/stockMovements/{movementId}": {
+      "schema": { "$ref": "#/entities/StockMovement" },
+      "description": "Immutable inventory stock movement transactions"
+    },
+    "/stores/{storeId}/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/ProductReview" },
+      "description": "Audit record of product batch reviews and alert resolutions"
     }
   }
 }

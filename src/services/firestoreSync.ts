@@ -8,11 +8,42 @@ import {
   deleteDoc, 
   onSnapshot, 
   query, 
-  where 
+  where,
+  writeBatch
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { Product, Batch, StoreSettings, Promotion, PromotionStatus } from '../types';
+import { Product, Batch, StoreSettings, Promotion, PromotionStatus, ProductReviewRecord, StockMovement } from '../types';
 import { calculateDaysRemaining, getExpirationStatus } from './storage';
+
+/**
+ * Global Firestore sync error reporting.
+ * Logs error to console and dispatches 'venceya:sync-error' custom event
+ * to notify UI banners and listeners.
+ */
+export function reportSyncError(err: unknown): void {
+  console.error('Firestore sync error:', err);
+  if (typeof window !== 'undefined') {
+    const message = err instanceof Error ? err.message : String(err || 'Error de sincronización con la nube');
+    window.dispatchEvent(new CustomEvent('venceya:sync-error', { detail: { message } }));
+  }
+}
+
+/**
+ * Removes undefined values recursively so Firestore payloads don't throw.
+ * Keeps null, arrays, dates, and nested objects.
+ */
+export function stripUndefined<T extends Record<string, any>>(obj: T): T {
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value === undefined) continue;
+    if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+      result[key] = stripUndefined(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result as T;
+}
 
 /**
  * Service to manage cloud synchronization of store inventory with Firestore
@@ -25,6 +56,8 @@ export interface StoreSyncUnsubscribers {
   unsubBatches: () => void;
   unsubAlerts: () => void;
   unsubPromotions?: () => void;
+  unsubReviews?: () => void;
+  unsubStockMovements?: () => void;
 }
 
 export const firestoreSyncService = {
@@ -116,6 +149,8 @@ export const firestoreSyncService = {
       onBatches: (batches: Batch[]) => void;
       onSettings: (settings: StoreSettings) => void;
       onPromotions?: (promotions: Promotion[]) => void;
+      onReviews?: (reviews: ProductReviewRecord[]) => void;
+      onStockMovements?: (movements: StockMovement[]) => void;
       onError?: (err: unknown) => void;
     }
   ): StoreSyncUnsubscribers {
@@ -123,6 +158,8 @@ export const firestoreSyncService = {
     const productsPath = `stores/${storeId}/products`;
     const batchesPath = `stores/${storeId}/batches`;
     const promotionsPath = `stores/${storeId}/promotions`;
+    const reviewsPath = `stores/${storeId}/reviews`;
+    const stockMovementsPath = `stores/${storeId}/stockMovements`;
 
     // 1. Store settings listener
     const unsubStore = onSnapshot(
@@ -146,7 +183,8 @@ export const firestoreSyncService = {
         }
       },
       (error) => {
-        handleFirestoreError(error, OperationType.GET, storePath);
+        callbacks.onError?.(error);
+        reportSyncError(error);
       }
     );
 
@@ -168,6 +206,12 @@ export const firestoreSyncService = {
             costPrice: d.costPrice,
             salePrice: d.salePrice,
             notes: d.notes,
+            lastReviewedAt: d.lastReviewedAt,
+            lastReviewedStatus: d.lastReviewedStatus,
+            lastReviewedNotes: d.lastReviewedNotes,
+            lastReviewedBatchId: d.lastReviewedBatchId,
+            lastReviewedExpirationDate: d.lastReviewedExpirationDate,
+            lastReviewedQuantity: d.lastReviewedQuantity,
             createdAt: d.createdAt || new Date().toISOString(),
             updatedAt: d.updatedAt || new Date().toISOString(),
           });
@@ -175,7 +219,8 @@ export const firestoreSyncService = {
         callbacks.onProducts(list);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, productsPath);
+        callbacks.onError?.(error);
+        reportSyncError(error);
       }
     );
 
@@ -199,7 +244,8 @@ export const firestoreSyncService = {
         callbacks.onBatches(list);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, batchesPath);
+        callbacks.onError?.(error);
+        reportSyncError(error);
       }
     );
 
@@ -251,7 +297,74 @@ export const firestoreSyncService = {
         callbacks.onPromotions(list);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, promotionsPath);
+        callbacks.onError?.(error);
+        reportSyncError(error);
+      }
+    );
+
+    // 5. Reviews listener
+    const unsubReviews = onSnapshot(
+      collection(db, 'stores', storeId, 'reviews'),
+      (snap) => {
+        if (!callbacks.onReviews) return;
+        const list: ProductReviewRecord[] = [];
+        snap.forEach((docSnap) => {
+          const d = docSnap.data();
+          list.push({
+            id: docSnap.id,
+            storeId,
+            productId: d.productId || '',
+            batchId: d.batchId,
+            reviewedAt: d.reviewedAt || new Date().toISOString(),
+            status: d.status || 'reviewed',
+            resolution: d.resolution,
+            notes: d.notes,
+            batchExpirationDate: d.batchExpirationDate,
+            batchQuantityAtReview: d.batchQuantityAtReview,
+          });
+        });
+        callbacks.onReviews(list);
+      },
+      (error) => {
+        callbacks.onError?.(error);
+        reportSyncError(error);
+      }
+    );
+
+    // 6. Stock Movements listener (Immutable history)
+    const unsubStockMovements = onSnapshot(
+      collection(db, 'stores', storeId, 'stockMovements'),
+      (snap) => {
+        if (!callbacks.onStockMovements) return;
+        const list: StockMovement[] = [];
+        snap.forEach((docSnap) => {
+          const d = docSnap.data();
+          list.push({
+            id: docSnap.id,
+            storeId,
+            userId: d.userId,
+            productId: d.productId || '',
+            productName: d.productName || '',
+            batchId: d.batchId,
+            batchExpirationDate: d.batchExpirationDate,
+            type: d.type || 'sale',
+            quantity: Number(d.quantity) || 0,
+            previousQuantity: d.previousQuantity !== undefined ? Number(d.previousQuantity) : undefined,
+            newQuantity: d.newQuantity !== undefined ? Number(d.newQuantity) : undefined,
+            unit: d.unit,
+            reason: d.reason,
+            notes: d.notes,
+            alertId: d.alertId,
+            recommendationId: d.recommendationId,
+            promotionId: d.promotionId,
+            createdAt: d.createdAt || new Date().toISOString(),
+          });
+        });
+        callbacks.onStockMovements(list);
+      },
+      (error) => {
+        callbacks.onError?.(error);
+        reportSyncError(error);
       }
     );
 
@@ -261,49 +374,48 @@ export const firestoreSyncService = {
       unsubBatches,
       unsubAlerts: () => {},
       unsubPromotions,
+      unsubReviews,
+      unsubStockMovements,
     };
   },
 
   /**
    * Save Product to Firestore
+   * Always writes with setDoc(docRef, cleanPayload, { merge: true }) (upsert)
+   * createdAt is included only if provided.
    */
-  async saveProduct(storeId: string, product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>, productId?: string): Promise<Product> {
-    const isNew = !productId;
+  async saveProduct(
+    storeId: string, 
+    product: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>, 
+    productId?: string,
+    createdAt?: string
+  ): Promise<Product> {
     const id = productId || `prod_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const docRef = doc(db, 'stores', storeId, 'products', id);
     const path = `stores/${storeId}/products/${id}`;
 
     const now = new Date().toISOString();
-    const productData: Product = {
+    const payload: Record<string, any> = {
       ...product,
       id,
-      createdAt: now,
+      storeId,
       updatedAt: now,
     };
+    if (createdAt) {
+      payload.createdAt = createdAt;
+    }
+    const cleanPayload = stripUndefined(payload);
 
     try {
-      if (isNew) {
-        await setDoc(docRef, {
-          ...productData,
-          storeId,
-        });
-      } else {
-        await updateDoc(docRef, {
-          name: product.name,
-          category: product.category,
-          unit: product.unit,
-          barcode: product.barcode || null,
-          brand: product.brand || null,
-          imageUrl: product.imageUrl || null,
-          costPrice: product.costPrice ?? null,
-          salePrice: product.salePrice ?? null,
-          notes: product.notes || null,
-          updatedAt: now,
-        });
-      }
-      return productData;
+      await setDoc(docRef, cleanPayload, { merge: true });
+      return {
+        ...product,
+        id,
+        createdAt: createdAt || now,
+        updatedAt: now,
+      } as Product;
     } catch (err) {
-      handleFirestoreError(err, isNew ? OperationType.CREATE : OperationType.UPDATE, path);
+      handleFirestoreError(err, OperationType.WRITE, path);
     }
   },
 
@@ -333,37 +445,40 @@ export const firestoreSyncService = {
 
   /**
    * Save Batch to Firestore
+   * Always writes with setDoc(docRef, cleanPayload, { merge: true }) (upsert)
+   * createdAt is included only if provided.
    */
-  async saveBatch(storeId: string, batch: Omit<Batch, 'id' | 'createdAt'>, batchId?: string): Promise<Batch> {
-    const isNew = !batchId;
+  async saveBatch(
+    storeId: string, 
+    batch: Omit<Batch, 'id' | 'createdAt'>, 
+    batchId?: string,
+    createdAt?: string
+  ): Promise<Batch> {
     const id = batchId || `batch_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const docRef = doc(db, 'stores', storeId, 'batches', id);
     const path = `stores/${storeId}/batches/${id}`;
 
     const now = new Date().toISOString();
-    const batchData: Batch = {
+    const payload: Record<string, any> = {
       ...batch,
       id,
-      createdAt: now,
+      storeId,
+      quantity: Number(batch.quantity) || 0,
     };
+    if (createdAt) {
+      payload.createdAt = createdAt;
+    }
+    const cleanPayload = stripUndefined(payload);
 
     try {
-      if (isNew) {
-        await setDoc(docRef, {
-          ...batchData,
-          storeId,
-        });
-      } else {
-        await updateDoc(docRef, {
-          lotNumber: batch.lotNumber || null,
-          quantity: Number(batch.quantity) || 0,
-          expirationDate: batch.expirationDate,
-          costPrice: batch.costPrice ?? null,
-        });
-      }
-      return batchData;
+      await setDoc(docRef, cleanPayload, { merge: true });
+      return {
+        ...batch,
+        id,
+        createdAt: createdAt || now,
+      } as Batch;
     } catch (err) {
-      handleFirestoreError(err, isNew ? OperationType.CREATE : OperationType.UPDATE, path);
+      handleFirestoreError(err, OperationType.WRITE, path);
     }
   },
 
@@ -406,19 +521,19 @@ export const firestoreSyncService = {
     try {
       for (const prod of localProducts) {
         const prodRef = doc(db, 'stores', storeId, 'products', prod.id);
-        await setDoc(prodRef, {
+        await setDoc(prodRef, stripUndefined({
           ...prod,
           storeId,
-        });
+        }), { merge: true });
         count++;
       }
 
       for (const b of localBatches) {
         const batchRef = doc(db, 'stores', storeId, 'batches', b.id);
-        await setDoc(batchRef, {
+        await setDoc(batchRef, stripUndefined({
           ...b,
           storeId,
-        });
+        }), { merge: true });
       }
       return count;
     } catch (err) {
@@ -436,11 +551,11 @@ export const firestoreSyncService = {
     const path = `stores/${storeId}/promotions/${promotion.id}`;
 
     try {
-      await setDoc(docRef, {
+      await setDoc(docRef, stripUndefined({
         ...promotion,
         storeId,
         updatedAt: new Date().toISOString(),
-      });
+      }), { merge: true });
     } catch (err) {
       handleFirestoreError(err, OperationType.WRITE, path);
     }
@@ -499,11 +614,11 @@ export const firestoreSyncService = {
         chunk.map(async (prod) => {
           try {
             const prodRef = doc(db, 'stores', storeId, 'products', prod.id);
-            await setDoc(prodRef, {
+            await setDoc(prodRef, stripUndefined({
               ...prod,
               storeId,
               updatedAt: new Date().toISOString(),
-            });
+            }), { merge: true });
             productsSaved++;
           } catch (err) {
             console.error(`Error saving imported product ${prod.name}:`, err);
@@ -520,10 +635,10 @@ export const firestoreSyncService = {
         chunk.map(async (batch) => {
           try {
             const batchRef = doc(db, 'stores', storeId, 'batches', batch.id);
-            await setDoc(batchRef, {
+            await setDoc(batchRef, stripUndefined({
               ...batch,
               storeId,
-            });
+            }), { merge: true });
             batchesSaved++;
           } catch (err) {
             console.error(`Error saving imported batch ${batch.id}:`, err);
@@ -534,5 +649,149 @@ export const firestoreSyncService = {
     }
 
     return { productsSaved, batchesSaved, errors };
+  },
+
+  /**
+   * Delete all documents in products, batches, promotions, reviews, and stockMovements
+   * subcollections for a store, in chunks of <= 400 operations using writeBatch.
+   * Does NOT delete the store document itself.
+   */
+  async clearStoreData(storeId: string): Promise<void> {
+    const subcollections = ['products', 'batches', 'promotions', 'reviews', 'stockMovements'];
+    const BATCH_LIMIT = 400;
+
+    for (const subcol of subcollections) {
+      const colRef = collection(db, 'stores', storeId, subcol);
+      const snap = await getDocs(colRef);
+      const docs = snap.docs;
+      
+      for (let i = 0; i < docs.length; i += BATCH_LIMIT) {
+        const chunk = docs.slice(i, i + BATCH_LIMIT);
+        const batch = writeBatch(db);
+        for (const docSnap of chunk) {
+          batch.delete(docSnap.ref);
+        }
+        await batch.commit();
+      }
+    }
+  },
+
+  /**
+   * Save Product Review Action Record to Firestore
+   * Scoped to /stores/{storeId}/reviews/{review.id}
+   */
+  async recordProductReview(storeId: string, review: ProductReviewRecord): Promise<void> {
+    const docRef = doc(db, 'stores', storeId, 'reviews', review.id);
+    const path = `stores/${storeId}/reviews/${review.id}`;
+
+    try {
+      await setDoc(docRef, {
+        ...review,
+        storeId,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // Also update Product document to reflect last review
+      const prodRef = doc(db, 'stores', storeId, 'products', review.productId);
+      const prodSnap = await getDoc(prodRef);
+      if (prodSnap.exists()) {
+        await updateDoc(prodRef, {
+          lastReviewedAt: review.reviewedAt,
+          lastReviewedStatus: review.status,
+          lastReviewedNotes: review.notes || null,
+          lastReviewedBatchId: review.batchId || null,
+          lastReviewedExpirationDate: review.batchExpirationDate || null,
+          lastReviewedQuantity: review.batchQuantityAtReview ?? null,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  },
+
+  /**
+   * Save Stock Movement Record to Firestore
+   * Scoped to /stores/{storeId}/stockMovements/{movement.id}
+   */
+  async recordStockMovement(storeId: string, movement: StockMovement): Promise<void> {
+    const docRef = doc(db, 'stores', storeId, 'stockMovements', movement.id);
+    const path = `stores/${storeId}/stockMovements/${movement.id}`;
+
+    try {
+      await setDoc(docRef, {
+        ...movement,
+        storeId,
+        createdAt: movement.createdAt || new Date().toISOString(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, path);
+    }
+  },
+
+  /**
+   * Atomically executes recommendation resolution and stock deduction in Firestore
+   * Coordinates movement audit log, batch deduction, and review metadata
+   */
+  async applyResolutionTransaction(
+    storeId: string,
+    params: {
+      reviewRecord: ProductReviewRecord;
+      stockMovement?: StockMovement;
+      batchId?: string;
+      newBatchQuantity?: number;
+      productId: string;
+    }
+  ): Promise<void> {
+    const { reviewRecord, stockMovement, batchId, newBatchQuantity, productId } = params;
+
+    try {
+      // 1. Record stock movement if one was generated (e.g. sale or discard)
+      if (stockMovement) {
+        const movRef = doc(db, 'stores', storeId, 'stockMovements', stockMovement.id);
+        await setDoc(movRef, {
+          ...stockMovement,
+          storeId,
+          createdAt: stockMovement.createdAt || new Date().toISOString(),
+        });
+      }
+
+      // 2. If batch quantity changed, update the batch in Firestore
+      if (batchId && newBatchQuantity !== undefined) {
+        const batchRef = doc(db, 'stores', storeId, 'batches', batchId);
+        await updateDoc(batchRef, {
+          quantity: newBatchQuantity,
+          lastReviewedAt: reviewRecord.reviewedAt,
+          lastReviewedStatus: reviewRecord.status,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      // 3. Save resolution audit record to /stores/{storeId}/reviews/{review.id}
+      const revRef = doc(db, 'stores', storeId, 'reviews', reviewRecord.id);
+      await setDoc(revRef, {
+        ...reviewRecord,
+        storeId,
+        updatedAt: new Date().toISOString(),
+      });
+
+      // 4. Update Product document with review metadata
+      const prodRef = doc(db, 'stores', storeId, 'products', productId);
+      const prodSnap = await getDoc(prodRef);
+      if (prodSnap.exists()) {
+        await updateDoc(prodRef, {
+          lastReviewedAt: reviewRecord.reviewedAt,
+          lastReviewedStatus: reviewRecord.status,
+          lastReviewedNotes: reviewRecord.notes || null,
+          lastReviewedBatchId: reviewRecord.batchId || null,
+          lastReviewedExpirationDate: reviewRecord.batchExpirationDate || null,
+          lastReviewedQuantity: reviewRecord.batchQuantityAtReview ?? null,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error('Error in applyResolutionTransaction cloud sync:', err);
+      handleFirestoreError(err, OperationType.WRITE, `stores/${storeId}/reviews/${reviewRecord.id}`);
+    }
   }
 };

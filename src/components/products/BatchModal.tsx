@@ -4,7 +4,7 @@ import { Product, Batch } from '../../types';
 import { storageService, formatDate, calculateDaysRemaining, getExpirationStatus, getStatusLabel } from '../../services/storage';
 import { soundService } from '../../services/sound';
 import { useAuth } from '../../contexts/AuthContext';
-import { firestoreSyncService } from '../../services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 
 interface BatchModalProps {
   isOpen: boolean;
@@ -98,7 +98,7 @@ export const BatchModal: React.FC<BatchModalProps> = ({
           quantity: Math.max(1, Number(quantity) || 1),
           expirationDate,
           costPrice: parsedCost,
-        }, saved.id).catch(err => console.warn('Batch cloud sync err:', err));
+        }, saved.id, batchToEdit ? undefined : saved.createdAt).catch(reportSyncError);
       }
 
       soundService.playSuccessChime();

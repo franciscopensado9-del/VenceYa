@@ -5,7 +5,7 @@ import { storageService, formatDate, calculateDaysRemaining, getExpirationStatus
 import { soundService } from '../../services/sound';
 import { BarcodeLookupResult } from '../../services/barcode';
 import { useAuth } from '../../contexts/AuthContext';
-import { firestoreSyncService } from '../../services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -168,7 +168,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             costPrice: parsedCost,
             salePrice: parsedSale,
             notes: notes.trim() || undefined,
-          }, productToEdit.id).catch(err => console.warn('Product cloud sync err:', err));
+          }, productToEdit.id).catch(reportSyncError);
         }
 
         soundService.playSuccessChime();
@@ -211,15 +211,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             costPrice: parsedCost,
             salePrice: parsedSale,
             notes: notes.trim() || undefined,
-          }, createdProduct.id).then(() => {
+          }, createdProduct.id, createdProduct.createdAt).then(() => {
             firestoreSyncService.saveBatch(userProfile.storeId, {
               productId: createdProduct.id,
               lotNumber: autoLotNumber,
               quantity: Math.max(1, Number(quantity) || 1),
               expirationDate,
               costPrice: parsedCost,
-            }, createdBatch.id).catch(err => console.warn('Batch cloud sync err:', err));
-          }).catch(err => console.warn('Product cloud sync err:', err));
+            }, createdBatch.id, createdBatch.createdAt).catch(reportSyncError);
+          }).catch(reportSyncError);
         }
 
         soundService.playSuccessChime();

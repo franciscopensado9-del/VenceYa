@@ -29,7 +29,7 @@ import { soundService } from '../../services/sound';
 import { lookupBarcodeInOpenFoodFacts, BarcodeLookupResult } from '../../services/barcode';
 import { recognizeDateFromCanvas, DateOcrResult } from '../../services/dateOcr';
 import { storageService, formatDate, calculateDaysRemaining, getExpirationStatus, getStatusLabel } from '../../services/storage';
-import { firestoreSyncService } from '../../services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { Product, ProductCategory, ProductUnit, Batch } from '../../types';
 
@@ -579,7 +579,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             costPrice: targetProduct.costPrice,
             salePrice: targetProduct.salePrice,
             notes: targetProduct.notes,
-          }, targetProduct.id).catch(err => console.warn('Cloud sync error:', err));
+          }, targetProduct.id).catch(reportSyncError);
         }
       } else {
         // Create brand new product
@@ -605,7 +605,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             costPrice: targetProduct.costPrice,
             salePrice: targetProduct.salePrice,
             notes: targetProduct.notes,
-          }, targetProduct.id).catch(err => console.warn('Cloud sync error:', err));
+          }, targetProduct.id, targetProduct.createdAt).catch(reportSyncError);
         }
       }
 
@@ -625,7 +625,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           quantity: newBatch.quantity,
           expirationDate: newBatch.expirationDate,
           costPrice: newBatch.costPrice,
-        }, newBatch.id).catch(err => console.warn('Cloud batch sync error:', err));
+        }, newBatch.id, newBatch.createdAt).catch(reportSyncError);
       }
 
       // Success audio & tactile feedback

@@ -10,7 +10,12 @@ import {
   Promotion,
   PromotionStatus,
   PromotionType,
-  SmartPromotionOpportunity
+  SmartPromotionOpportunity,
+  ProductReviewRecord,
+  RecommendationStatus,
+  StockMovement,
+  StockMovementType,
+  ResolutionOptionType
 } from '../types';
 
 export const DEFAULT_SETTINGS: StoreSettings = {
@@ -445,6 +450,8 @@ const DEMO_KEYS = {
   SETTINGS: 'venceya_demo_settings_v2',
   ALERTS: 'venceya_demo_alerts_v2',
   PROMOTIONS: 'venceya_demo_promotions_v2',
+  REVIEWS: 'venceya_demo_reviews_v2',
+  MOVEMENTS: 'venceya_demo_movements_v2',
   SNAPSHOT: 'venceya_demo_snapshot_v2',
 };
 
@@ -479,6 +486,8 @@ class StorageService {
         SETTINGS: DEMO_KEYS.SETTINGS,
         ALERTS: DEMO_KEYS.ALERTS,
         PROMOTIONS: DEMO_KEYS.PROMOTIONS,
+        REVIEWS: DEMO_KEYS.REVIEWS,
+        MOVEMENTS: DEMO_KEYS.MOVEMENTS,
       };
     }
     const prefix = `venceya_store_${this.currentStoreId}`;
@@ -488,6 +497,8 @@ class StorageService {
       SETTINGS: `${prefix}_settings`,
       ALERTS: `${prefix}_alerts`,
       PROMOTIONS: `${prefix}_promotions`,
+      REVIEWS: `${prefix}_reviews`,
+      MOVEMENTS: `${prefix}_movements`,
     };
   }
 
@@ -1082,28 +1093,98 @@ class StorageService {
     return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
   }
 
-  importDataJson(jsonString: string): { success: boolean; message: string; count?: number } {
+  importDataJson(jsonString: string): { 
+    success: boolean; 
+    message: string; 
+    count?: number; 
+    products?: Product[]; 
+    batches?: Batch[]; 
+    discardedCount?: number; 
+  } {
     try {
       const data = JSON.parse(jsonString);
       if (!Array.isArray(data.products) || !Array.isArray(data.batches)) {
-        return { success: false, message: 'El archivo JSON no tiene el formato válido de VenceYa.' };
+        return { 
+          success: false, 
+          message: 'El archivo JSON no tiene el formato válido de VenceYa.',
+          discardedCount: 0,
+        };
       }
 
+      const idRegex = /^[a-zA-Z0-9_-]+$/;
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
+      let discardedProducts = 0;
+      let discardedBatches = 0;
+
+      // Validate products: id with regex ^[a-zA-Z0-9_-]+$, name non-empty string
+      const validProducts: Product[] = [];
+      const validProductIds = new Set<string>();
+
+      for (const p of data.products) {
+        if (
+          p &&
+          typeof p.id === 'string' &&
+          idRegex.test(p.id) &&
+          typeof p.name === 'string' &&
+          p.name.trim().length > 0
+        ) {
+          validProducts.push(p);
+          validProductIds.add(p.id);
+        } else {
+          discardedProducts++;
+        }
+      }
+
+      // Validate batches: id with regex, productId existing in validProductIds, quantity number, expirationDate with regex ^\d{4}-\d{2}-\d{2}$
+      const validBatches: Batch[] = [];
+      for (const b of data.batches) {
+        if (
+          b &&
+          typeof b.id === 'string' &&
+          idRegex.test(b.id) &&
+          typeof b.productId === 'string' &&
+          validProductIds.has(b.productId) &&
+          typeof b.quantity === 'number' &&
+          !isNaN(b.quantity) &&
+          typeof b.expirationDate === 'string' &&
+          dateRegex.test(b.expirationDate)
+        ) {
+          validBatches.push(b);
+        } else {
+          discardedBatches++;
+        }
+      }
+
+      const discardedTotal = discardedProducts + discardedBatches;
+
       const keys = this.getKeys();
-      localStorage.setItem(keys.PRODUCTS, JSON.stringify(data.products));
-      localStorage.setItem(keys.BATCHES, JSON.stringify(data.batches));
+      localStorage.setItem(keys.PRODUCTS, JSON.stringify(validProducts));
+      localStorage.setItem(keys.BATCHES, JSON.stringify(validBatches));
       if (data.storeSettings) {
         localStorage.setItem(keys.SETTINGS, JSON.stringify(data.storeSettings));
       }
       this.recalculateAlerts();
 
+      let msg = `Se importaron ${validProducts.length} productos y ${validBatches.length} lotes correctamente.`;
+      if (discardedTotal > 0) {
+        msg += ` (${discardedTotal} registros inválidos fueron descartados)`;
+      }
+
       return {
         success: true,
-        message: `Se importaron ${data.products.length} productos y ${data.batches.length} lotes correctamente.`,
-        count: data.products.length,
+        message: msg,
+        count: validProducts.length,
+        products: validProducts,
+        batches: validBatches,
+        discardedCount: discardedTotal,
       };
     } catch {
-      return { success: false, message: 'Error al procesar el archivo JSON.' };
+      return { 
+        success: false, 
+        message: 'Error al procesar el archivo JSON.',
+        discardedCount: 0,
+      };
     }
   }
 
@@ -1364,6 +1445,330 @@ class StorageService {
     }
 
     return opportunities;
+  }
+
+  // --- PRODUCT REVIEWS & ACTIONS PERSISTENCE ---
+
+  getReviews(): ProductReviewRecord[] {
+    if (!this.isBrowser) return [];
+    try {
+      const keys = this.getKeys();
+      const data = localStorage.getItem(keys.REVIEWS);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  getReviewForProductBatch(productId: string, batchId?: string, expirationDate?: string): ProductReviewRecord | undefined {
+    const reviews = this.getReviews();
+    return reviews.find(r => {
+      if (r.productId !== productId) return false;
+      if (batchId && r.batchId && r.batchId === batchId) return true;
+      if (expirationDate && r.batchExpirationDate === expirationDate) return true;
+      if (!batchId && !r.batchId) return true;
+      return false;
+    });
+  }
+
+  recordProductReview(
+    reviewData: Omit<ProductReviewRecord, 'id' | 'reviewedAt'> & { id?: string; reviewedAt?: string }
+  ): ProductReviewRecord {
+    const reviews = this.getReviews();
+    const now = new Date().toISOString();
+    const id = reviewData.id || `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    
+    const newRecord: ProductReviewRecord = {
+      ...reviewData,
+      id,
+      reviewedAt: reviewData.reviewedAt || now,
+    };
+
+    // Filter out previous review for the exact same product and batch to maintain single source of truth
+    const filtered = reviews.filter(r => !(r.productId === reviewData.productId && (r.batchId === reviewData.batchId || (r.batchExpirationDate && r.batchExpirationDate === reviewData.batchExpirationDate))));
+    filtered.unshift(newRecord);
+
+    if (this.isBrowser) {
+      const keys = this.getKeys();
+      localStorage.setItem(keys.REVIEWS, JSON.stringify(filtered));
+    }
+
+    // Also update the Product in local storage with last reviewed metadata
+    const products = this.getProducts();
+    const pIdx = products.findIndex(p => p.id === reviewData.productId);
+    if (pIdx >= 0) {
+      products[pIdx] = {
+        ...products[pIdx],
+        lastReviewedAt: now,
+        lastReviewedStatus: reviewData.status,
+        lastReviewedNotes: reviewData.notes,
+        lastReviewedBatchId: reviewData.batchId,
+        lastReviewedExpirationDate: reviewData.batchExpirationDate,
+        lastReviewedQuantity: reviewData.batchQuantityAtReview,
+        updatedAt: now,
+      };
+      if (this.isBrowser) {
+        const keys = this.getKeys();
+        localStorage.setItem(keys.PRODUCTS, JSON.stringify(products));
+      }
+    }
+
+    // Also update the Batch in local storage
+    if (reviewData.batchId) {
+      const batches = this.getBatches();
+      const bIdx = batches.findIndex(b => b.id === reviewData.batchId);
+      if (bIdx >= 0) {
+        batches[bIdx] = {
+          ...batches[bIdx],
+          lastReviewedAt: now,
+          lastReviewedStatus: reviewData.status,
+        };
+        if (this.isBrowser) {
+          const keys = this.getKeys();
+          localStorage.setItem(keys.BATCHES, JSON.stringify(batches));
+        }
+      }
+    }
+
+    this.recalculateAlerts();
+    return newRecord;
+  }
+
+  deleteProductReview(id: string): void {
+    const reviews = this.getReviews().filter(r => r.id !== id);
+    if (this.isBrowser) {
+      const keys = this.getKeys();
+      localStorage.setItem(keys.REVIEWS, JSON.stringify(reviews));
+    }
+  }
+
+  setCloudReviews(reviews: ProductReviewRecord[]): void {
+    if (!this.isBrowser || this.isDemoMode) return;
+    const keys = this.getKeys();
+    localStorage.setItem(keys.REVIEWS, JSON.stringify(reviews));
+  }
+
+  // --- CENTRALIZED STOCK MOVEMENTS SYSTEM ---
+
+  getStockMovements(): StockMovement[] {
+    if (!this.isBrowser) return [];
+    try {
+      const keys = this.getKeys();
+      const data = localStorage.getItem(keys.MOVEMENTS);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  recordStockMovement(
+    movementData: Omit<StockMovement, 'id' | 'createdAt'> & { id?: string; createdAt?: string }
+  ): StockMovement {
+    const list = this.getStockMovements();
+    const now = new Date().toISOString();
+    const id = movementData.id || `mov_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    const newRecord: StockMovement = {
+      ...movementData,
+      id,
+      createdAt: movementData.createdAt || now,
+    };
+
+    // Idempotency check: prevent duplicate insertion of identical movement ID
+    if (!list.some(m => m.id === id)) {
+      list.unshift(newRecord);
+      if (this.isBrowser) {
+        const keys = this.getKeys();
+        localStorage.setItem(keys.MOVEMENTS, JSON.stringify(list));
+      }
+    }
+
+    return newRecord;
+  }
+
+  setCloudStockMovements(movements: StockMovement[]): void {
+    if (!this.isBrowser || this.isDemoMode) return;
+    const keys = this.getKeys();
+    localStorage.setItem(keys.MOVEMENTS, JSON.stringify(movements));
+  }
+
+  /**
+   * Centralized atomic stock movement execution
+   * Updates batch and product quantities in lockstep with the immutable movement record
+   */
+  applyStockMovementTransaction(params: {
+    movement: Omit<StockMovement, 'id' | 'createdAt'> & { id?: string; createdAt?: string };
+    deductStock?: boolean;
+  }): {
+    movement: StockMovement;
+    updatedBatch?: Batch;
+    updatedProduct?: Product;
+  } {
+    const movement = this.recordStockMovement(params.movement);
+
+    let updatedBatch: Batch | undefined = undefined;
+    let updatedProduct: Product | undefined = undefined;
+
+    if (params.deductStock && params.movement.quantity > 0 && params.movement.batchId) {
+      const batches = this.getBatches();
+      const bIdx = batches.findIndex(b => b.id === params.movement.batchId);
+      if (bIdx >= 0) {
+        const currentBatch = batches[bIdx];
+        const prevQty = currentBatch.quantity;
+        const newQty = Math.max(0, prevQty - params.movement.quantity);
+
+        batches[bIdx] = {
+          ...currentBatch,
+          quantity: newQty,
+          lastReviewedAt: movement.createdAt,
+          lastReviewedStatus: newQty === 0 ? 'resolved' : currentBatch.lastReviewedStatus,
+        };
+
+        updatedBatch = batches[bIdx];
+
+        if (this.isBrowser) {
+          const keys = this.getKeys();
+          localStorage.setItem(keys.BATCHES, JSON.stringify(batches));
+        }
+
+        // Also touch product updatedAt
+        const products = this.getProducts();
+        const pIdx = products.findIndex(p => p.id === params.movement.productId);
+        if (pIdx >= 0) {
+          products[pIdx] = {
+            ...products[pIdx],
+            lastReviewedAt: movement.createdAt,
+            updatedAt: movement.createdAt,
+          };
+          updatedProduct = products[pIdx];
+          if (this.isBrowser) {
+            const keys = this.getKeys();
+            localStorage.setItem(keys.PRODUCTS, JSON.stringify(products));
+          }
+        }
+      }
+    }
+
+    this.recalculateAlerts();
+    return { movement, updatedBatch, updatedProduct };
+  }
+
+  /**
+   * Complete resolution flow for recommended actions
+   * Handles Vendido, Descartado, Descuento aplicado, and Otro with strict validation
+   */
+  resolveRecommendation(params: {
+    productId: string;
+    batchId?: string;
+    storeId?: string;
+    userId?: string;
+    resolutionType: ResolutionOptionType;
+    quantityResolved?: number;
+    notes?: string;
+    promotionId?: string;
+    batchExpirationDate?: string;
+    currentBatchQuantity?: number;
+    productName: string;
+    unit?: string;
+  }): {
+    reviewRecord: ProductReviewRecord;
+    stockMovement?: StockMovement;
+    updatedBatch?: Batch;
+  } {
+    const now = new Date().toISOString();
+    const reviewId = `rev_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    let status: RecommendationStatus = 'resolved';
+    let stockMovement: StockMovement | undefined = undefined;
+    let updatedBatch: Batch | undefined = undefined;
+
+    // 1. Process specific option logic
+    if (params.resolutionType === 'sold') {
+      status = 'resolved';
+      const qty = params.quantityResolved || 0;
+      if (qty > 0 && params.batchId) {
+        const result = this.applyStockMovementTransaction({
+          movement: {
+            storeId: params.storeId || this.currentStoreId,
+            userId: params.userId,
+            productId: params.productId,
+            productName: params.productName,
+            batchId: params.batchId,
+            batchExpirationDate: params.batchExpirationDate,
+            type: 'sale',
+            quantity: qty,
+            previousQuantity: params.currentBatchQuantity,
+            newQuantity: Math.max(0, (params.currentBatchQuantity || 0) - qty),
+            unit: params.unit,
+            reason: params.notes || 'Venta antes de vencer',
+            recommendationId: `rec_${params.productId}_${params.batchId}`,
+          },
+          deductStock: true,
+        });
+        stockMovement = result.movement;
+        updatedBatch = result.updatedBatch;
+      }
+    } else if (params.resolutionType === 'discarded') {
+      status = 'resolved';
+      const qty = params.quantityResolved || 0;
+      if (qty > 0 && params.batchId) {
+        const result = this.applyStockMovementTransaction({
+          movement: {
+            storeId: params.storeId || this.currentStoreId,
+            userId: params.userId,
+            productId: params.productId,
+            productName: params.productName,
+            batchId: params.batchId,
+            batchExpirationDate: params.batchExpirationDate,
+            type: 'discard',
+            quantity: qty,
+            previousQuantity: params.currentBatchQuantity,
+            newQuantity: Math.max(0, (params.currentBatchQuantity || 0) - qty),
+            unit: params.unit,
+            reason: params.notes || 'Retirado del stock (merma)',
+            recommendationId: `rec_${params.productId}_${params.batchId}`,
+          },
+          deductStock: true,
+        });
+        stockMovement = result.movement;
+        updatedBatch = result.updatedBatch;
+      }
+    } else if (params.resolutionType === 'discount_applied') {
+      status = 'promotion_created';
+      // Promoción asociada - NO se descuenta stock
+    } else if (params.resolutionType === 'other') {
+      status = 'resolved';
+      // Otra solución con motivo obligatorio - NO se descuenta stock
+    }
+
+    // 2. Record review audit document
+    const reviewRecord = this.recordProductReview({
+      id: reviewId,
+      storeId: params.storeId,
+      userId: params.userId,
+      productId: params.productId,
+      batchId: params.batchId,
+      reviewedAt: now,
+      status,
+      resolution: params.resolutionType,
+      resolutionType: params.resolutionType,
+      quantityResolved: params.quantityResolved,
+      notes: params.notes,
+      promotionId: params.promotionId,
+      batchExpirationDate: params.batchExpirationDate,
+      batchQuantityAtReview: params.currentBatchQuantity,
+      stockMovementId: stockMovement?.id,
+    });
+
+    // 3. Mark matching alert as read/dismissed
+    const allAlerts = this.getAlerts();
+    const matchingAlert = allAlerts.find(
+      a => a.productId === params.productId && (!params.batchId || a.batchId === params.batchId)
+    );
+    if (matchingAlert) {
+      this.markAlertRead(matchingAlert.id);
+    }
+
+    return { reviewRecord, stockMovement, updatedBatch };
   }
 }
 

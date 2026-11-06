@@ -107,6 +107,29 @@ service cloud.firestore {
           request.resource.data.storeId == resource.data.storeId;
         allow delete: if isStoreOwner(storeId);
       }
+
+      // Subcollection: Reviews
+      match /reviews/{reviewId} {
+        allow read: if isStoreOwner(storeId);
+        allow create: if isStoreOwner(storeId) &&
+          isValidId(reviewId) &&
+          request.resource.data.storeId == storeId;
+        allow update: if isStoreOwner(storeId) &&
+          request.resource.data.storeId == resource.data.storeId;
+        allow delete: if isStoreOwner(storeId);
+      }
+
+      // Subcollection: Stock Movements (Immutable audit trail)
+      match /stockMovements/{movementId} {
+        allow read: if isStoreOwner(storeId);
+        allow create: if isStoreOwner(storeId) &&
+          isValidId(movementId) &&
+          request.resource.data.storeId == storeId &&
+          request.resource.data.productId is string &&
+          request.resource.data.quantity is number;
+        allow update: if false; // Immutable audit log
+        allow delete: if isStoreOwner(storeId);
+      }
     }
   }
 }

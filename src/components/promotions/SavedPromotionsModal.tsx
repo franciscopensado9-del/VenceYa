@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { Promotion, PromotionStatus } from '../../types';
 import { storageService } from '../../services/storage';
-import { firestoreSyncService } from '../../services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { soundService } from '../../services/sound';
 
@@ -63,7 +63,7 @@ export const SavedPromotionsModal: React.FC<SavedPromotionsModalProps> = ({
     const nextStatus: PromotionStatus = promo.status === 'active' ? 'ended' : 'active';
     storageService.updatePromotionStatus(promo.id, nextStatus);
     if (userProfile?.storeId && !storageService.isDemoActive()) {
-      firestoreSyncService.updatePromotionStatus(userProfile.storeId, promo.id, nextStatus).catch(err => console.warn(err));
+      firestoreSyncService.updatePromotionStatus(userProfile.storeId, promo.id, nextStatus).catch(reportSyncError);
     }
     soundService.playScanSuccess();
     onRefresh();
@@ -72,7 +72,7 @@ export const SavedPromotionsModal: React.FC<SavedPromotionsModalProps> = ({
   const handleDelete = async (promo: Promotion) => {
     storageService.deletePromotion(promo.id);
     if (userProfile?.storeId && !storageService.isDemoActive()) {
-      firestoreSyncService.deletePromotion(userProfile.storeId, promo.id).catch(err => console.warn(err));
+      firestoreSyncService.deletePromotion(userProfile.storeId, promo.id).catch(reportSyncError);
     }
     onRefresh();
   };

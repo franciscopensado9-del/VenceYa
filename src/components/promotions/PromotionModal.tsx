@@ -32,7 +32,7 @@ import {
   StoreSettings 
 } from '../../types';
 import { storageService, calculateDaysRemaining } from '../../services/storage';
-import { firestoreSyncService } from '../../services/firestoreSync';
+import { firestoreSyncService, reportSyncError } from '../../services/firestoreSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { soundService } from '../../services/sound';
 
@@ -472,9 +472,28 @@ export const PromotionModal: React.FC<PromotionModalProps> = ({
       // 1. Save in local storage (demo mode or local cache)
       const saved = storageService.savePromotion(promoData);
 
-      // 2. Save in Firestore if user is logged in and not in demo mode
+      // 2. Transition recommendation status to 'promotion_created' and record review
+      const reviewRecord = storageService.recordProductReview({
+        productId: product.id,
+        batchId: selectedBatch?.id,
+        status: 'promotion_created',
+        resolution: 'promotion_active',
+        notes: `Promoción creada: ${calculation.descriptionLabel}`,
+        batchExpirationDate: selectedBatch?.expirationDate,
+        batchQuantityAtReview: batchStock,
+        storeId: userProfile?.storeId,
+      });
+
+      // 3. Save in Firestore if user is logged in and not in demo mode
       if (userProfile?.storeId && !storageService.isDemoActive()) {
-        await firestoreSyncService.savePromotion(userProfile.storeId, saved);
+        try {
+          await Promise.all([
+            firestoreSyncService.savePromotion(userProfile.storeId, saved),
+            firestoreSyncService.recordProductReview(userProfile.storeId, reviewRecord)
+          ]);
+        } catch (cloudErr) {
+          reportSyncError(cloudErr);
+        }
       }
 
       soundService.playScanSuccess();
@@ -485,9 +504,10 @@ export const PromotionModal: React.FC<PromotionModalProps> = ({
       setTimeout(() => {
         setSaveSuccessMessage(null);
         onClose();
-      }, 1400);
+      }, 1200);
     } catch (err) {
       console.error('Error saving promotion:', err);
+      reportSyncError(err);
     } finally {
       setIsSaving(false);
     }
